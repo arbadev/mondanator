@@ -71,6 +71,17 @@ These are reported review cases, not independently reproduced/fixed by integrati
 
 The same review lists stale setup/docs on the evidence branch and the POSIX/fcntl limit. Integration's agreed Python3.13 exact-pin setup and docs have already been implemented/locally installed and tested here; that does not claim the evidence pipeline's findings are closed. Native Windows remains unsupported. Continue deterministic runner/accounting tests without a new model-driven loop or paid calls.
 
+### Open planning review limitations (inbox017)
+
+Review `01M2BYWJQ9QNW24YXGHCYR0TBC` at the owner's corrected-core branch head `3b81413067d0fdf8839920ea173bc864de87e5bf` identifies four still-open findings. It does **not** authorize importing that head or choosing a new policy:
+
+- `superset-change-serialization`: a tied two-action ReduceTo+Stop plan can serialize ahead of a sufficient Stop-only plan, recommending an unnecessary reduction. Strict-subset dominance or a new action-count priority is not authorized here.
+- `stale-docs-provenance`: the options branch retains older integration docs. This checkout's controlled import provenance is already updated; the other branch's finding remains pipeline-owned.
+- `blank-cap-unverifiable`: a blank installment cap is treated as unverifiable instead of a definite refusal, potentially blocking a safe full-payment plan.
+- `full-today-suppressed-by-excluded-row`: an excluded full-payment offer can suppress a rule-based full-today candidate and delay changed one-shot generation.
+
+**All four require authority**, including the last two info-severity findings; reported absence from current data is not acceptance or resolution. Integration must not change imported planning, repair the selection in its renderer or invent ranking semantics. Preserve these issues beside the extraction limits and await exact corrected options/extraction handoffs before final certification. The297-test committed module baseline predates the newly written, still-untested production runner file.
+
 ### Controlled planning import (inbox015)
 
 At clean corrected-core checkpoint8ffe945 (202 tests passing), imported only the authorized planning-only commits with `-x`:
