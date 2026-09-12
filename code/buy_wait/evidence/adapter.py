@@ -169,7 +169,7 @@ def adapt_extraction(result: ExtractionResult, *, request_id: str, user_id: str,
         refs = evidence or _evidence(source.source_id, fact)
         identity = core.canonical_hash((identity, refs))
         facts.append(core.Fact("extracted:" + identity, target, claim, effective_on=start, valid_until=end,
-                               scope="series" if isinstance(target, core.SeriesTarget) else "occurrence",
+                               scope="series" if isinstance(target, core.SeriesTarget) and fact.effect_window.scope not in {"once", "next_occurrence"} else "occurrence",
                                evidence=refs, action=fact.operation,
                                certainty="supported" if fact.certainty == "explicit" else "ambiguous"))
 
@@ -210,35 +210,41 @@ def adapt_extraction(result: ExtractionResult, *, request_id: str, user_id: str,
             new_groups.setdefault(target.local_id, (target, []))[1].append(observed)
             continue
         try:
-            if observed.effect_window.scope == "next_occurrence" and isinstance(target, core.SeriesTarget):
-                raise private.EvidenceError("next_occurrence_needs_event_binding")
             if isinstance(payload, private.Amount):
                 value, direction = money(observed, target)
                 if direction not in {"credit", "debit"}:
                     raise private.EvidenceError("non_cash_target")
+                if isinstance(target, core.SeriesTarget) and payload.role in {"one_off_arrears", "bonus", "commission", "refund_amount"}:
+                    raise private.EvidenceError("one_off_needs_occurrence_binding")
                 claim = core.SeriesAmountClaim(value) if isinstance(target, core.SeriesTarget) else core.AmountClaim(value, "payable" if direction == "debit" else "net_cash")
                 emit(observed, target, claim)
-                if payload.role in {"regular_salary", "one_off_arrears", "bonus", "commission", "refund_amount"}:
+                if isinstance(target, core.EventTarget) and payload.role in {"regular_salary", "one_off_arrears", "bonus", "commission", "refund_amount"}:
                     role = "regular_salary" if payload.role == "regular_salary" else "one_off"
                     emit(observed, target, core.IncomeRoleClaim(role), suffix="income-role")
             elif isinstance(payload, private.State):
-                if not isinstance(target, core.EventTarget) or payload.value == "unknown":
-                    raise private.EvidenceError("state_needs_known_occurrence")
-                state = events[target.event_id].status
+                if payload.value == "unknown":
+                    raise private.EvidenceError("unknown_state")
                 if payload.axis == "cash":
                     claim = core.StateClaim(payload.value)
-                elif payload.axis == "approval":
-                    claim = core.StateClaim(state, approval_state=payload.value)
                 else:
-                    claim = core.StateClaim(state, obligation_state=payload.value)
+                    if not isinstance(target, core.EventTarget):
+                        raise private.EvidenceError("state_needs_known_occurrence")
+                    state = events[target.event_id].status
+                    claim = (core.StateClaim(state, approval_state=payload.value) if payload.axis == "approval"
+                             else core.StateClaim(state, obligation_state=payload.value))
                 emit(observed, target, claim)
             elif isinstance(payload, private.DateClaim):
-                if payload.value is None or not isinstance(target, core.EventTarget):
+                if payload.value is None:
                     raise private.EvidenceError("unresolved_settlement_date")
                 emit(observed, target, core.DateClaim(parse_day(payload.value)))
             elif isinstance(payload, private.RelativeChange):
                 if not isinstance(target, core.SeriesTarget) or payload.measure != "percent":
                     raise private.EvidenceError("relative_change_needs_core_resolution")
+                if payload.base_role not in {"regular_salary", "net_received", "net_payable", "balance_due"}:
+                    raise private.EvidenceError("unsupported_series_scale_basis")
+                if ((payload.base_role in {"net_payable", "balance_due"} and target.direction != "debit")
+                        or (payload.base_role in {"regular_salary", "net_received"} and target.direction != "credit")):
+                    raise private.EvidenceError("money_role_direction_mismatch")
                 # Unit conversion only, not base-money arithmetic. Ambient
                 # Decimal precision must not alter an evidenced percentage.
                 with localcontext() as context:
@@ -249,7 +255,7 @@ def adapt_extraction(result: ExtractionResult, *, request_id: str, user_id: str,
                     raise private.EvidenceError("unsupported_series_scale")
                 emit(observed, target, core.SeriesScaleClaim(multiplier))
             elif isinstance(payload, private.Pattern):
-                if payload.recurrence == "one_off":
+                if payload.recurrence == "one_off" and isinstance(target, core.EventTarget):
                     emit(observed, target, core.IncomeRoleClaim("one_off"))
                 elif payload.recurrence == "ended" and isinstance(target, core.SeriesTarget) and observed.operation in {"end", "cancel"}:
                     emit(observed, target, core.CancelClaim())

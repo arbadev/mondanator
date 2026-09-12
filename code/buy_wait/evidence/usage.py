@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import threading
 from dataclasses import asdict, dataclass
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, localcontext
 from typing import Protocol
 
 from .schema import EvidenceError
@@ -101,8 +101,9 @@ def usage_fields(body: dict) -> dict:
         if isinstance(cost, bool) or not isinstance(cost, (str, int, float, Decimal)):
             raise ValueError()
         value = Decimal(str(cost))
-        if not value.is_finite() or value < 0:
-            raise ValueError()
+        if (not value.is_finite() or value < 0 or value.adjusted() > 9
+                or value.as_tuple().exponent < -24 or len(value.as_tuple().digits) > 48):
+            raise ValueError()  # bounded telemetry; never expand adversarial exponents
         cost = format(value, "f")
     except (ValueError, InvalidOperation):
         cost = None
@@ -134,22 +135,41 @@ class RunBudget:
             raise EvidenceError("invalid_budget")
         self.max_calls, self.max_cost = max_calls, max_cost
         self._amounts: dict[str, Decimal] = {}
-        self._lock = threading.Lock()
+        self._source_keys: dict[str, str] = {}
+        self._lock = threading.RLock()
         self.overrun = False
 
     @property
     def committed(self) -> Decimal:
-        return sum(self._amounts.values(), Decimal(0))
+        with self._lock:
+            return self._sum(tuple(self._amounts.values()))
 
-    def reserve(self, attempt_id: str, bound: Decimal | None):
+    @staticmethod
+    def _sum(values):
+        if not values:
+            return Decimal(0)
+        # Exact for finite decimal costs, independent of a caller's context.
+        with localcontext() as context:
+            context.prec = max(28, max(v.adjusted() for v in values) - min(v.as_tuple().exponent for v in values)
+                               + len(str(len(values))) + 2)
+            return sum(values, Decimal(0))
+
+    def reserve(self, attempt_id: str, bound: Decimal | None, *, source_key: str | None = None, max_source_calls: int = 3):
         with self._lock:
             if not isinstance(bound, Decimal) or not bound.is_finite() or bound <= 0:
                 raise EvidenceError("unbounded_attempt_cost")
             if attempt_id in self._amounts:
                 raise EvidenceError("duplicate_attempt")
-            if self.overrun or len(self._amounts) >= self.max_calls or self.committed + bound > self.max_cost:
+            if source_key is not None:
+                if not isinstance(source_key, str) or not source_key or type(max_source_calls) is not int or not 1 <= max_source_calls <= 3:
+                    raise EvidenceError("invalid_source_attempt_limit")
+                if sum(key == source_key for key in self._source_keys.values()) >= max_source_calls:
+                    raise EvidenceError("source_attempts_exhausted")
+            if self.overrun or len(self._amounts) >= self.max_calls or self._sum((*self._amounts.values(), bound)) > self.max_cost:
                 raise EvidenceError("budget_exhausted")
             self._amounts[attempt_id] = bound
+            if source_key is not None:
+                self._source_keys[attempt_id] = source_key
 
     def reconcile(self, attempt_id: str, reported_cost: str | None):
         if reported_cost is None:

@@ -137,7 +137,11 @@ class Extractor:
                         hit = UsageEvent(self.run_id, str(uuid.uuid4()), source.source_id, key, self.config.model,
                                          originals[-1].returned_model, originals[-1].actual_provider, None, "cache_hit", None,
                                          0, 0, 0, "0", cache_origin_attempt_ids=tuple(x.attempt_id for x in originals))
-                        self.usage.record(hit)
+                        try:
+                            self.usage.record(hit)
+                        except Exception:
+                            self._fatal = "usage_sink_failure"
+                            return ExtractionResult(source, "unavailable", None, (self._fatal,), key, (), originals, content_hash)
                         issues = tuple(i.code for i in extraction.issues)
                         if any(x.cost is None or x.prompt_tokens is None or x.completion_tokens is None or x.total_tokens is None for x in originals):
                             issues += ("usage_unknown",)
@@ -150,6 +154,10 @@ class Extractor:
                 return ExtractionResult(source, "unavailable", None, (self._fatal,), key, (), content_sha256=content_hash)
             if self.client is None or not self.client.live_enabled or self.budget is None:
                 return ExtractionResult(source, "unavailable", None, ("live_inference_disabled",), key, (), content_sha256=content_hash)
+            try:
+                self.client.preflight(payload)
+            except EvidenceError as exc:
+                return ExtractionResult(source, "unavailable", None, (exc.code,), key, (), content_sha256=content_hash)
             return self._call(source, candidate_events, text, payload, key, content_hash, cost_upper_bound, max_seconds)
 
     def _call(self, source, candidates, text, payload, key, content_hash, cost_bound, max_seconds):
@@ -165,7 +173,7 @@ class Extractor:
                 break
             attempt_id = str(uuid.uuid4())
             try:
-                self.budget.reserve(attempt_id, cost_bound)
+                self.budget.reserve(attempt_id, cost_bound, source_key=key, max_source_calls=self.config.max_attempts)
             except EvidenceError as exc:
                 final_error = exc.code
                 break
@@ -192,12 +200,21 @@ class Extractor:
                                finished_at=datetime.now(timezone.utc).isoformat(), http_status=response.status if response else None,
                                retry_of=attempts[-1].attempt_id if attempts else None, **metadata)
             self.budget.reconcile(attempt_id, event.cost)
-            self.usage.record(event)
             attempts.append(event)
+            try:
+                self.usage.record(event)
+            except Exception:
+                self._fatal = "usage_sink_failure"
+                return ExtractionResult(source, "unavailable", None, (self._fatal,), key,
+                                        tuple(x.attempt_id for x in attempts), tuple(attempts), content_hash)
             if extraction is not None:
-                self.cache.save(key, {"extraction": extraction.model_dump(mode="json"),
-                                      "origin_usage": [x.to_dict() for x in attempts], "content_sha256": content_hash})
                 issues = tuple(i.code for i in extraction.issues)
+                try:
+                    self.cache.save(key, {"extraction": extraction.model_dump(mode="json"),
+                                          "origin_usage": [x.to_dict() for x in attempts], "content_sha256": content_hash})
+                except Exception:
+                    self._fatal = "cache_write_failed"
+                    issues += (self._fatal,)
                 if any(x.cost is None or x.prompt_tokens is None or x.completion_tokens is None or x.total_tokens is None for x in attempts):
                     issues += ("usage_unknown",)
                 if self.budget.overrun:

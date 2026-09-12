@@ -62,11 +62,11 @@ def adapt(raw, events, **kwargs):
     return adapt_extraction(result_for(raw, events), request_id="r1", user_id="u1", events=events, **kwargs)
 
 
-def build(adapted, events, *, balance="1000", minimum="100", requested="900"):
+def build(adapted, events, *, balance="1000", minimum="100", requested="900", policy=None):
     money = lambda value: parse_money(value, "USD")
     profile = c.FinancialProfile("u1", "USD", money(balance), money(minimum))
     data = c.FinancialInput("r1", "u1", R, money(requested), profile, tuple(events.values()), sources=adapted.sources)
-    return build_financial_context(data, adapted.batch, policy=c.ForecastPolicy())
+    return build_financial_context(data, adapted.batch, policy=policy or c.ForecastPolicy())
 
 
 class AdapterTests(unittest.TestCase):
@@ -211,7 +211,7 @@ class AdapterTests(unittest.TestCase):
         adapted = adapt(raw_amount("Amount due 0", value="0"), events)
         self.assertEqual(adapted.batch.facts[0].claim.value, c.Money("USD", 0))
 
-    def test_unlinked_series_needs_host_target_and_does_not_bypass_recurrence_guard(self):
+    def test_unlinked_series_needs_host_target_and_never_bypasses_unknown_proof(self):
         raw = raw_amount("Salary increases 10 percent starting 2026-02-01", direction="credit")
         fact = raw["facts"][0]
         fact["subject"].update(scope="series", event_id=None)
@@ -226,8 +226,81 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(adapted.batch.facts[0].claim, c.SeriesScaleClaim(Decimal("1.1")))
         self.assertEqual(adapted.batch.facts[0].action, "amend")
         core = build(adapted, {})
-        self.assertIn("RECURRENCE_SLICE_INCOMPLETE", core.capacity.issue_codes)
+        self.assertIn("UNSUPPORTED_SERIES_TARGET", core.capacity.issue_codes)
+        self.assertEqual(core.capacity.proof_status, "unresolved")
         self.assertFalse(replay_financial_plan(core, (c.Payment(R, c.Money("USD", 1), "p"),)).safe)
+
+    def test_series_amendment_reaches_real_supported_recurrence(self):
+        raw = raw_amount("Regular salary increases 10 percent starting 2026-02-01", direction="credit")
+        fact = raw["facts"][0]
+        fact["subject"].update(scope="series", event_id=None)
+        fact["payload"] = dict(kind="relative_change", measure="percent", value="10", currency=None, change="increase", base_role="regular_salary")
+        fact["operation"] = "amend"
+        fact["effect_window"] = dict(scope="from_date", start_date="2026-02-01", end_date=None, anchor_quote="starting 2026-02-01")
+        days = [date(2025, 11, 1), date(2025, 12, 1), date(2026, 1, 1)]
+        events = {}
+        for index, day in enumerate(days):
+            eid = f"history_{index}"
+            events[eid] = replace(event(eid=eid, status="settled", direction="credit", category="salary"),
+                                  event_date=day, settlement_date=day, description="Regular salary")
+        target = c.SeriesTarget("u1", "salary", "credit", "USD", description_key="regular salary")
+        adapted = adapt(raw, events, resolved_targets={"f1": target})
+        core = build(adapted, events)
+        self.assertEqual(core.capacity.proof_status, "resolved_under_policy")
+        self.assertEqual(len(core.series), 1)
+        self.assertEqual([o.cash_date for o in core.occurrences], [date(2026, m, 1) for m in (2, 3, 4, 5)])
+        self.assertTrue(all(o.home_amount == c.Money("USD", 11000) for o in core.occurrences))
+        development_only = build(adapted, events, policy=c.ForecastPolicy(projection_mode="explicit_only"))
+        self.assertIn("EXPLICIT_ONLY_NOT_FULL_PROOF", development_only.capacity.issue_codes)
+        self.assertFalse(replay_financial_plan(development_only, (c.Payment(R, c.Money("USD", 1), "p"),)).safe)
+
+    def test_gross_percentage_and_one_off_amount_are_not_recurring_net_cash(self):
+        raw = raw_amount("Gross income increases 10 percent", direction="credit")
+        fact = raw["facts"][0]
+        fact["subject"].update(scope="series", event_id=None)
+        fact["payload"] = dict(kind="relative_change", measure="percent", value="10", currency=None, change="increase", base_role="gross")
+        target = c.SeriesTarget("u1", "salary", "credit", "USD")
+        adapted = adapt(raw, {}, resolved_targets={"f1": target})
+        self.assertEqual(adapted.batch.facts, ())
+        self.assertIn("UNSUPPORTED_SERIES_SCALE_BASIS", {i.code for i in adapted.batch.issues})
+        raw = raw_amount("Bonus 120.00", role="bonus", direction="credit")
+        raw["facts"][0]["subject"].update(scope="series", event_id=None)
+        adapted = adapt(raw, {}, resolved_targets={"f1": target})
+        self.assertEqual(adapted.batch.facts, ())
+        self.assertIn("ONE_OFF_NEEDS_OCCURRENCE_BINDING", {i.code for i in adapted.batch.issues})
+
+    def test_series_cash_and_date_claims_keep_core_resolution_authority(self):
+        days = [date(2025, 11, 1), date(2025, 12, 1), date(2026, 1, 1)]
+        events = {f"h{i}": replace(event(eid=f"h{i}", direction="credit", category="salary", status="settled"),
+                                   event_date=day, settlement_date=day) for i, day in enumerate(days)}
+        target = c.SeriesTarget("u1", "salary", "credit", "USD")
+        raw = raw_amount("Regular salary cancelled from 2026-02-01")
+        fact = raw["facts"][0]
+        fact["subject"].update(scope="series", event_id=None)
+        fact["operation"] = "cancel"
+        fact["effect_window"] = dict(scope="from_date", start_date="2026-02-01", end_date=None, anchor_quote="from 2026-02-01")
+        fact["payload"] = dict(kind="state", axis="cash", value="cancelled")
+        adapted = adapt(raw, events, resolved_targets={"f1": target})
+        self.assertEqual(adapted.batch.facts[0].claim, c.StateClaim("cancelled"))
+        self.assertEqual(build(adapted, events).occurrences, ())
+        raw = raw_amount("The monthly salary payment date changes to 2026-02-04")
+        fact = raw["facts"][0]
+        fact["subject"].update(scope="series", event_id=None)
+        fact["operation"] = "amend"
+        fact["payload"] = dict(kind="date", role="settlement", value="2026-02-04", raw="2026-02-04", interpretation="explicit_iso", alternatives=[])
+        fact["effect_window"]["scope"] = "until_further_notice"
+        adapted = adapt(raw, events, resolved_targets={"f1": target})
+        self.assertIsInstance(adapted.batch.facts[0].claim, c.DateClaim)
+        core = build(adapted, events)
+        self.assertIn("UNSUPPORTED_SERIES_DATE_SHIFT", core.capacity.issue_codes)
+        self.assertEqual(core.capacity.proof_status, "unresolved")
+        fact["effect_window"]["scope"] = "next_occurrence"
+        fact["operation"] = "delay"
+        adapted = adapt(raw, events, resolved_targets={"f1": target})
+        self.assertEqual(adapted.batch.facts[0].scope, "occurrence")
+        core = build(adapted, events)
+        self.assertEqual(core.capacity.proof_status, "resolved_under_policy")
+        self.assertEqual([o.cash_date for o in core.occurrences], [date(2026, 2, 4), date(2026, 3, 1), date(2026, 4, 1), date(2026, 5, 1)])
 
     def test_unbound_new_cash_is_not_invented_but_complete_host_group_is_real(self):
         text = "One-off expense payable USD 120.00; scheduled to settle 2026-02-03."
