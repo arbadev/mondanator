@@ -44,7 +44,7 @@ def digest(value: object) -> str:
     return hashlib.sha256(canonical(value)).hexdigest()
 
 
-def strict_json(data: str | bytes, *, max_bytes: int = 262144) -> object:
+def strict_json(data: str | bytes, *, max_bytes: int = 262144, decimal_numbers: bool = False) -> object:
     def pairs(items):
         result = {}
         for key, value in items:
@@ -59,7 +59,8 @@ def strict_json(data: str | bytes, *, max_bytes: int = 262144) -> object:
     try:
         if len(data.encode() if isinstance(data, str) else data) > max_bytes:
             raise EvidenceError("oversize_response")
-        return json.loads(data, object_pairs_hook=pairs, parse_constant=nonfinite)
+        return json.loads(data, object_pairs_hook=pairs, parse_constant=nonfinite,
+                          parse_float=Decimal if decimal_numbers else float)
     except (ValueError, UnicodeError, TypeError, RecursionError) as exc:
         if isinstance(exc, EvidenceError):
             raise

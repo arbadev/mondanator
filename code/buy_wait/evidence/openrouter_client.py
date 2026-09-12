@@ -27,7 +27,7 @@ class ExtractorConfig:
     max_completion_tokens: int = 4096
     max_attempts: int = 3
     prompt_version: str = "extract-v1"
-    build_version: str = "evidence-v1"
+    build_version: str = "evidence-v2"
     preprocessing_version: str = "original-bytes-v1"
 
     def __post_init__(self):
@@ -114,7 +114,8 @@ class OpenRouterClient:
         self.live_enabled = live_enabled
         self._transport = transport
 
-    def send(self, payload: dict) -> Response:
+    def preflight(self, payload: dict) -> None:
+        """Known pre-dispatch failures are not physical/billable attempts."""
         if not self.live_enabled:
             raise EvidenceError("live_inference_disabled")
         if not self._key:
@@ -123,6 +124,9 @@ class OpenRouterClient:
                 or payload.get("stream") is not False or "tools" in payload or "plugins" in payload
                 or payload.get("response_format") != response_format()):
             raise EvidenceError("unsupported_configuration")
+
+    def send(self, payload: dict) -> Response:
+        self.preflight(payload)
         try:
             with httpx.Client(transport=self._transport, trust_env=False, follow_redirects=False,
                               timeout=httpx.Timeout(60, connect=10, write=30, pool=10)) as client:
@@ -134,7 +138,7 @@ class OpenRouterClient:
                             raise EvidenceError("oversize_response")
                         chunks.append(chunk)
                     try:
-                        body = strict_json(b"".join(chunks), max_bytes=1048576)
+                        body = strict_json(b"".join(chunks), max_bytes=1048576, decimal_numbers=True)
                         if not isinstance(body, dict):
                             body = {}
                     except EvidenceError:

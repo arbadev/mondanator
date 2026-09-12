@@ -108,6 +108,39 @@ class ClientCacheTests(unittest.TestCase):
         with self.assertRaisesRegex(EvidenceError, "missing_credential"):
             load_api_key(Guarded())
 
+    def test_missing_credential_is_not_counted_as_a_physical_call(self):
+        extractor = self.extractor([])
+        extractor.client = OpenRouterClient(live_enabled=True, transport=httpx.MockTransport(lambda request: self.fail("dispatched")))
+        result = self.call(extractor)
+        self.assertEqual(result.issues, ("missing_credential",))
+        self.assertEqual(result.attempt_ids, ())
+        self.assertEqual(self.sink.events, [])
+        self.assertEqual(extractor.budget.committed, Decimal("0"))
+
+    def test_usage_sink_failure_preserves_receipt_and_stops_dispatch(self):
+        class FailingSink:
+            def record(self, event):
+                raise OSError("PRIVATE-PATH-DO-NOT-LOG")
+        extractor = self.extractor([httpx.Response(200, json=success())])
+        extractor.usage = FailingSink()
+        result = self.call(extractor)
+        self.assertEqual(result.issues, ("usage_sink_failure",))
+        self.assertEqual(result.origin_usage[0].cost, "0.002")
+        self.assertEqual(self.call(extractor).issues, ("usage_sink_failure",))
+        self.assertEqual(len(self.calls), 1)
+        self.assertIsNone(result.extraction)
+
+    def test_cache_write_failure_keeps_accounting_and_cannot_loop_paid_calls(self):
+        from unittest.mock import patch
+        extractor = self.extractor([httpx.Response(200, json=success())])
+        with patch.object(self.cache, "save", side_effect=OSError("PRIVATE-PATH-DO-NOT-LOG")):
+            result = self.call(extractor)
+        self.assertIn("cache_write_failed", result.issues)
+        self.assertEqual(result.origin_usage[0].cost, "0.002")
+        self.assertEqual(self.call(extractor).issues, ("cache_write_failed",))
+        self.assertEqual(len(self.calls), 1)
+        self.assertEqual(len(self.sink.events), 1)
+
     def test_auth_error_latches_and_never_exposes_body(self):
         extractor = self.extractor([httpx.Response(401, json={"error": {"message": "SECRET-PROVIDER-ECHO"}})])
         first = self.call(extractor)
@@ -232,6 +265,31 @@ class ClientCacheTests(unittest.TestCase):
         self.assertIsNone(fields["actual_provider"])
         self.assertIsNone(fields["returned_model"])
         self.assertIsNone(fields["total_tokens"])
+
+    def test_repeated_failed_source_cannot_restart_its_attempt_cap(self):
+        extractor = self.extractor([httpx.Response(503, json={}) for _ in range(3)])
+        self.assertEqual(self.call(extractor).issues, ("provider_unavailable",))
+        self.assertEqual(self.call(extractor).issues, ("source_attempts_exhausted",))
+        self.assertEqual(len(self.calls), 3)
+        self.assertEqual(len(self.sink.events), 3)
+
+    def test_budget_addition_does_not_round_under_ambient_context(self):
+        from decimal import localcontext
+        budget = RunBudget(max_calls=3, max_cost=Decimal("1"))
+        with localcontext() as context:
+            context.prec = 1
+            budget.reserve("a", Decimal("0.44"))
+            budget.reserve("b", Decimal("0.44"))
+            self.assertEqual(budget.committed, Decimal("0.88"))
+            with self.assertRaisesRegex(EvidenceError, "budget_exhausted"):
+                budget.reserve("c", Decimal("0.16"))
+
+    def test_wire_billing_decimals_stay_exact_and_extreme_exponents_unknown(self):
+        from buy_wait.evidence.schema import strict_json
+        body = strict_json('{"usage":{"cost":0.000123456789012345678}}', decimal_numbers=True)
+        self.assertEqual(usage_fields(body)["cost"], "0.000123456789012345678")
+        self.assertIsNone(usage_fields(strict_json('{"usage":{"cost":1e-10000}}', decimal_numbers=True))["cost"])
+        self.assertIsNone(usage_fields(strict_json('{"usage":{"cost":1e10000}}', decimal_numbers=True))["cost"])
 
     def test_unknown_usage_never_zero_and_subtokens_not_added(self):
         fields = usage_fields({"usage": {"prompt_tokens": True, "cost": "NaN", "completion_tokens": -1}})
