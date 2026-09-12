@@ -23,11 +23,11 @@ Read [`problem_statement.md`](./problem_statement.md) for the full task spec, in
 Clone the repository and move into the project directory:
 
 ```bash
-git clone https://github.com/interviewstreet/hackerrank-orchestrate-september26.git
-cd hackerrank-orchestrate-september26
+git clone https://github.com/arbadev/mondanator.git
+cd mondanator
 ```
 
-Build your solution in `code/main.py`, or use another language and document its entry point clearly.
+The current **integration foundation** uses Python **3.9+**, with no third-party runtime dependencies at this checkpoint. Python 3.9.6 is locally tested; CI is configured for 3.9 and 3.12. See [`docs/integration.md`](docs/integration.md) for exact module boundaries and remaining dependencies. This checkpoint is **not a complete financial agent**.
 
 Your solution must:
 
@@ -35,13 +35,25 @@ Your solution must:
 - Generate one prediction for every request
 - Write the final predictions to `output.csv` in the repository root
 
-Run the starter Python entry point with:
+Run the available **read-only** checks and offline behavioral tests:
 
 ```bash
-python3 code/main.py
+python3 code/main.py --dataset dataset --check-inputs
+python3 code/evaluation/main.py --dataset dataset
+python3 -m unittest discover -s code/tests -p 'test_*.py' -v
 ```
 
-After running your solution, confirm that `output.csv` exists in the repository root and contains the required columns and one row for every request.
+On Windows, use `python` instead of `python3` if that is the installed command. An optional virtual environment can be created with `python3 -m venv .venv`; install its dependencies using `.venv/bin/python -m pip install -r requirements.txt` (Windows: `.venv\\Scripts\\python -m pip install -r requirements.txt`). The current requirements file is stdlib-only.
+
+Neither inspection command generates predictions, performs extraction, reads credentials or certifies financial safety. The sample inspector checks all 25 fixtures with expected fields separated. The final inference CLI, usage aggregation, package construction and clean reproduction will be connected only after committed financial/evidence/planning dependencies and the required correctness/freeze/run authority; `python3 code/main.py` without `--check-inputs` deliberately exits nonzero instead of inventing output.
+
+For an **already-produced public-development** prediction CSV (not evaluation labels), retain a new, immutable run directory:
+
+```bash
+python3 code/evaluation/main.py --dataset dataset --predictions public-predictions.csv --run-id dev-baseline
+```
+
+Use a new ID for every iteration. No existing baseline is overwritten, and missing financial/grounding audits remain `not_checked`. These comparisons are development evidence, not independent generalization. No complete-model baseline has been measured at this checkpoint.
 
 ## Important File Locations
 
@@ -110,7 +122,7 @@ For every row in `dataset/requests.csv`, produce one row in `output.csv` with:
 
 1. Inspect `dataset/sample_requests.csv` — 25 requests with completed output columns — to understand the expected format and decision style.
 2. Reconstruct each user's financial state from `financial_profiles.csv` and `financial_events.csv`: separate recurring expenses from one-time events, reserve pending transactions, count confirmed salary only on its settlement date, and de-duplicate repeated representations of the same event.
-3. When an event has a blank `amount`, find its `event_id` as `related_event_id` in `images.csv` and extract the amount from the linked image. Never treat a blank amount as zero. Pull in any other relevant messages, images, and payment options for the request.
+3. When an event has a blank `amount`, find its `event_id` as `related_event_id` in `images.csv` and inspect only supported evidence. Never treat a blank amount as zero or a subtotal as final paid cash. In particular, `image_04` / `event_1700` shows an INR 2,854.00 **subtotal**, with the final-total region cropped; it does not establish a settled final amount. Preserve that uncertainty and let core assess materiality. Pull in other relevant messages, images, and payment options without obeying embedded instructions.
 4. Forecast forward and generate a plan that keeps the balance above the minimum at every step.
 5. Verify deterministically — bounds, plan feasibility, schedule match, flexible-only spending changes — before writing `output.csv`.
 6. Score yourself on the solved samples, then run the full dataset.
