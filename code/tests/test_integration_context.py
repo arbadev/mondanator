@@ -1,4 +1,4 @@
-"""CSV -> real core records -> real explicit replay (never mock financial math)."""
+"""CSV -> real core records -> real replay/recurrence (never mock financial math)."""
 from dataclasses import FrozenInstanceError, fields, replace
 from datetime import date
 from decimal import Decimal
@@ -6,7 +6,7 @@ from decimal import Decimal
 from integration_fixtures import ROOT, IntegrationCase, REQUEST_FIELDS, SCHEMAS, blank, request, write_csv
 from buy_wait.contracts import (
     AmountClaim, EvidenceRef, Fact, FactBatch, FinancialInput, ForecastPolicy, Money,
-    EventTarget, Payment, SourceRef, canonical_data,
+    EventTarget, Payment, SourceRef, Stop, canonical_data,
 )
 from buy_wait.core import build_financial_context, replay_financial_plan
 from buy_wait.data import Dataset, DataError, PlanningContext
@@ -188,14 +188,32 @@ class ContextTests(IntegrationCase):
         self.assertEqual(core.capacity.amount_safe_to_pay, Money("INR", 45000))
         self.assertEqual(core.capacity.proof_status, "resolved_under_policy")
 
-    def test_real_recurrence_guard_and_explicit_only_policy_are_not_bypassed(self):
-        events = [self.event(f"history_{i}", "50", f"2029-{i:02d}-01", status="settled") for i in (9, 10, 11)]
+    def test_real_supported_recurrence_and_explicit_only_proof_guard(self):
+        events = [self.event(f"history_{i}", "50", f"2029-{i:02d}-15", status="settled") for i in (9, 10, 11)]
         core = self.core(self.prepare(events))
-        self.assertIn("RECURRENCE_SLICE_INCOMPLETE", [i.code for i in core.issues])
-        self.assertIsNone(core.capacity.amount_safe_to_pay)
+        self.assertEqual([o.cash_date for o in core.occurrences], [date(2030, 1, 15), date(2030, 2, 15), date(2030, 3, 15)])
+        self.assertEqual(core.capacity.amount_safe_to_pay, Money("INR", 55000))  # 1000 - 300 - 3*50
+        self.assertEqual(core.capacity.proof_status, "resolved_under_policy")
         core2 = self.core(self.prepare([]), policy=ForecastPolicy(projection_mode="explicit_only"))
+        self.assertIn("EXPLICIT_ONLY_NOT_FULL_PROOF", [i.code for i in core2.issues])
         self.assertEqual(core2.capacity.proof_status, "unresolved")
+        self.assertIsNone(core2.capacity.amount_safe_to_pay)
         self.assertFalse(replay_financial_plan(core2, ()).safe)
+
+    def test_real_changed_replay_has_negative_expense_deltas_and_immutable_capacity(self):
+        profiles = [dict(p) for p in self.tables["financial_profiles.csv"]]
+        profiles[0]["expense_categories_user_is_willing_to_stop"] = "housing"
+        self.rows("financial_profiles.csv", profiles)
+        events = [{**self.event(f"history_{i}", "50", f"2029-{i:02d}-15", status="settled"),
+                   "flexibility": "stoppable"} for i in (9, 10, 11)]
+        core = self.core(self.prepare(events))
+        self.assertTrue(core.change_targets)
+        saved = core.capacity
+        changed = replay_financial_plan(core, (), changes=(Stop("history_11"),))
+        self.assertTrue(changed.safe)
+        self.assertEqual([delta for _, delta in changed.occurrence_deltas], [-5000, -5000, -5000])
+        self.assertEqual(core.capacity, saved)
+        self.assertEqual(saved.amount_safe_to_pay, Money("INR", 55000))
 
     def test_all_public_fixtures_adapt_to_real_types_without_forecasting_or_labels(self):
         data = Dataset.load(ROOT / "dataset")
