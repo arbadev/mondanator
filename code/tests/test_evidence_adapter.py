@@ -14,8 +14,11 @@ from dataclasses import replace
 from datetime import date, timedelta
 from decimal import Decimal, localcontext
 from pathlib import Path
+import sys
 
 import httpx
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from buy_wait import contracts as c
 from buy_wait.core import build_financial_context, replay_financial_plan
