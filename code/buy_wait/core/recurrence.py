@@ -65,6 +65,14 @@ def _category_key(record):
     return e.category, e.direction, e.currency
 
 
+def _may_fill_cycle(record, start):
+    """A failed or pre-request attempt never stands in for a future debit cycle."""
+    e = record.event
+    if record.disposition != "excluded" or e.direction == "credit":
+        return True
+    return e.status == "cancelled" and e.settlement_date is not None and e.settlement_date >= start
+
+
 def _selector_matches(target, records):
     if isinstance(target, EventTarget):
         return any(target.event_id in r.source_event_ids for r in records)
@@ -240,17 +248,18 @@ def infer_occurrences(data, resolved, facts, anchor, explicit, policy):
     original = {e.event_id: e for e in data.events}
     grouped_explicit = defaultdict(list)
     for record in resolved:
-        if record.disposition == "anchored_history":
+        if record.disposition == "anchored_history" or not _may_fill_cycle(record, start):
             continue
-        matches = [i for i, g in enumerate(groups) if _category_key(record) == _category_key(g["records"][0])]
-        exact = [i for i in matches if any(description_key(record.event.description) == description_key(r.event.description)
-                                           for r in groups[i]["records"])]
-        matches = exact or matches
+        stream = [i for i, g in enumerate(groups) if _category_key(record) == _category_key(g["records"][0])]
+        exact = [i for i in stream if groups[i]["category_stream"] or any(
+            description_key(record.event.description) == description_key(r.event.description) for r in groups[i]["records"])]
+        matches = exact or stream
         if len(matches) == 1:
-            grouped_explicit[matches[0]].append(record)
+            grouped_explicit[matches[0]].append((record, bool(exact)))
         elif len(matches) > 1 and record.disposition in ("reserve", "future_cash"):
             issues.append(issue("AMBIGUOUS_EXPLICIT_CYCLE", "future cash cannot be assigned uniquely to recurring series",
-                                target=record.source_event_ids, impact="recurrence"))
+                                target=record.source_event_ids, impact="recurrence",
+                                severity="warning" if not exact and record.event.direction == "debit" else "blocking"))
     result_series = []
     changes = []
     covered_history = set(assigned)
@@ -291,8 +300,9 @@ def infer_occurrences(data, resolved, facts, anchor, explicit, policy):
                                  active_start, base, flexibility=latest.flexibility, floor=latest.minimum_allowed_amount)
         result_series.append(series)
         assignments = defaultdict(list)
-        for record in grouped_explicit[index]:
+        for record, identified in grouped_explicit[index]:
             e = record.event
+            replaces = identified or first.direction == "credit"
             old = next((original[x] for x in record.source_event_ids if x in original), None)
             match_day = old.settlement_date if old and old.settlement_date else e.settlement_date
             if match_day is None or not days:
@@ -301,8 +311,12 @@ def infer_occurrences(data, resolved, facts, anchor, explicit, policy):
             distance, nominal = distances[0]
             gap_days = (next_cycle(nominal, cadence) - nominal).days
             if 2 * distance < gap_days and (len(distances) == 1 or distances[1][0] != distance):
-                assignments[nominal].append(record)
-            elif e.settlement_date and start <= e.settlement_date <= end and record.disposition in ("reserve", "future_cash"):
+                if replaces:
+                    assignments[nominal].append(record)
+                if not identified:
+                    issues.append(issue("AMBIGUOUS_EXPLICIT_CYCLE", "same-category cash lacks the series description; cycle identity is unproven",
+                                        target=record.source_event_ids, severity="warning", impact="recurrence"))
+            elif replaces and e.settlement_date and start <= e.settlement_date <= end and record.disposition in ("reserve", "future_cash"):
                 issues.append(issue("UNMATCHED_EXPLICIT_CYCLE", "explicit cash may overlap inference but its nominal cycle is not identified", target=record.source_event_ids, impact="recurrence"))
         editable_ids = []
         for nominal in days:
