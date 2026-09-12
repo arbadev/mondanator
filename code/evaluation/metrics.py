@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
+from collections.abc import Mapping
 from decimal import Decimal, localcontext
 
 from buy_wait.data import DataError, iso_day
@@ -150,14 +151,26 @@ def compare_predictions(requests, expected, predictions, currencies, *, audits=N
         audit = audits.get(key)
         # Absence is explicit. A structurally plausible CSV is not a safe plan.
         per_request.append({"request_id": key, "metrics": fields, "structural_issues": defects,
-                            "audit": audit, "audit_status": "supplied" if audit is not None else "not_checked"})
+                            "audit": audit, "audit_status": ("not_checked" if audit is None else "supplied" if isinstance(audit, Mapping) else "invalid")})
     audit_rows = [a for a in audits.values() if a is not None]
     audit_dimensions = {}
     for dimension in ("safety", "schedule_validity", "eligibility", "action_validity", "explanation_grounding"):
-        checked = [a[dimension] for a in audit_rows if isinstance(a.get(dimension), dict) and a[dimension].get("checked") is True]
+        checked, invalid = [], 0
+        for supplied in audit_rows:
+            if not isinstance(supplied, Mapping):
+                invalid += 1
+                continue
+            item = supplied.get(dimension)
+            if item is None:
+                continue
+            if (not isinstance(item, Mapping) or type(item.get("checked")) is not bool
+                    or (item["checked"] and not isinstance(item.get("violations"), (list, tuple)))):
+                invalid += 1
+            elif item["checked"]:
+                checked.append(item)
         audit_dimensions[dimension] = {
-            "checked": len(checked), "not_checked": len(requests) - len(checked),
-            "violations": sum(len(item.get("violations", [])) for item in checked),
+            "checked": len(checked), "not_checked": len(requests) - len(checked), "invalid": invalid,
+            "violations": sum(len(item["violations"]) for item in checked) if checked else None,
             "evidence": "supplied audit adapter; not inferred from reference agreement",
         }
     metrics = {
