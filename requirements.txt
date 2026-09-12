@@ -1,4 +1,6 @@
-# Integration/explicit-core checkpoint: Python >=3.9, standard library only.
-# No third-party packages are required by these offline modules/tests.
-# The evidence owner's committed client dependencies must be pinned at handoff;
-# do not install speculative model SDKs or automatically load .env.
+# Python >=3.10 is required by the evidence module; the tested baseline is Python 3.13.
+# Exact pins for the offline evidence client, schema and image checks.
+# Do not install speculative model SDKs or automatically load .env.
+pydantic==2.13.5
+httpx==0.28.1
+Pillow==12.3.0

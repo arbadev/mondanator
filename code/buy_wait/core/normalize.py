@@ -2,8 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import timezone
-from typing import Tuple
+from datetime import timedelta, timezone
 
 from buy_wait.contracts import (
     AmountClaim, CancelClaim, DateClaim, EventRecord, EventTarget, EvidenceIssue,
@@ -168,21 +167,41 @@ def normalize_events(data: FinancialInput, batch: FactBatch):
         settlement, date_ids = _choose(event, dates, "settlement_date", sources)
         event = replace(event, settlement_date=settlement)
         active = [f for f in matched if applicable(f, settlement or data.request_date)]
-        monetary = [f for f in active if isinstance(f.claim, AmountClaim)
+        priced = active if settlement is not None else [
+            f for f in matched if f.valid_until is None or f.valid_until >= data.request_date]
+        monetary = [f for f in priced if isinstance(f.claim, AmountClaim)
                     and f.claim.role == ("payable" if event.direction == "debit" else "net_cash")]
         if any(f.claim.value.currency != event.currency for f in monetary):
             issues.append(issue("FACT_CURRENCY_MISMATCH", "amount fact currency differs from event", target=(event.event_id,)))
             monetary = []
-        amount, amount_ids = _choose(event, monetary, "amount", sources)
+        if settlement is None:
+            cuts = sorted({data.request_date,
+                           *(f.effective_on for f in monetary if f.effective_on and f.effective_on > data.request_date),
+                           *(f.valid_until + timedelta(days=1) for f in monetary if f.valid_until)})
+            regions = [_choose(event, [f for f in monetary if applicable(f, day)], "amount", sources) for day in cuts]
+            if any(value is None for value, _ in regions):
+                amount, amount_ids = None, ()
+            else:
+                bound = (max if event.direction == "debit" else min)(value.minor for value, _ in regions)
+                amount = next(value for value, _ in regions if value.minor == bound)
+                amount_ids = tuple(sorted({i for value, ids in regions if value.minor == bound for i in ids}))
+        else:
+            amount, amount_ids = _choose(event, monetary, "amount", sources)
         if event.direction == "debit" and any(f.effective_on or f.valid_until for f in monetary):
-            issues.append(issue("SETTLEMENT_APPLICABILITY_PROXY", "inclusive bill tiers resolved using supported settlement date; no earlier paid-date evidence",
-                                target=(event.event_id,), severity="info", impact="none"))
-        states = [f for f in active if isinstance(f.claim, (StateClaim, CancelClaim))]
+            if settlement is None and amount is not None:
+                issues.append(issue("UNKNOWN_DATE_TIER_BOUND", "payment date unknown; the highest still-applicable bill tier is reserved as a bound",
+                                    target=(event.event_id,), severity="warning", impact="debit"))
+            elif settlement is not None:
+                issues.append(issue("SETTLEMENT_APPLICABILITY_PROXY", "inclusive bill tiers resolved using supported settlement date; no earlier paid-date evidence",
+                                    target=(event.event_id,), severity="info", impact="none"))
+        states = [f for f in active if isinstance(f.claim, CancelClaim)
+                  or (isinstance(f.claim, StateClaim) and f.claim.value is not None)]
         status, state_ids = _choose(event, states, "status", sources)
         event = replace(event, amount=amount, status=status)
         approval = "unknown"
         obligation = "unknown"
-        metadata_facts = [f for f in states if isinstance(f.claim, StateClaim)]
+        metadata_facts = [f for f in active if isinstance(f.claim, StateClaim)
+                          and (f.claim.approval_state != "unknown" or f.claim.obligation_state != "unknown")]
         explicit_metadata = [f for f in metadata_facts if f.action in EXPLICIT_ACTIONS or f.supersedes_fact_ids]
         metadata_facts = explicit_metadata or metadata_facts
         metadata_times = [_actor_time(f, sources) for f in metadata_facts]
@@ -240,8 +259,9 @@ def normalize_events(data: FinancialInput, batch: FactBatch):
             disposition, reason = "future_cash", "CONFIRMED_SALARY" if event.direction == "credit" else "SCHEDULED_DEBIT"
         else:
             disposition, reason = "unresolved", "UNSUPPORTED_CASH_STATE"
-        ids = tuple(sorted(set((*date_ids, *amount_ids, *state_ids, *(f.fact_id for f in roles)))))
-        evidence_ids = tuple(sorted({event.source.source_id, *(e.source_id for f in active for e in f.evidence)}))
+        metadata_ids = (f.fact_id for f in metadata_facts if f.claim.value is None)
+        ids = tuple(sorted(set((*date_ids, *amount_ids, *state_ids, *metadata_ids, *(f.fact_id for f in roles)))))
+        evidence_ids = tuple(sorted({event.source.source_id, *(e.source_id for f in (*active, *monetary) for e in f.evidence)}))
         result.append(ResolvedEvent(event.event_id, (event.event_id,), event, disposition, reason, ids,
                                     evidence_ids, role, approval, obligation))
 

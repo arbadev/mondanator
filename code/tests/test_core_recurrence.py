@@ -72,6 +72,29 @@ class RecurrenceTests(unittest.TestCase):
         self.assertEqual(len(core.occurrences), 2)
         self.assertEqual(min(o.cash_date for o in core.occurrences), date(2026, 3, 15))
 
+    def test_failed_or_pre_request_attempt_does_not_erase_next_cycle(self):
+        for status, offset in (("failed", -3), ("cancelled", -3), ("failed", 3)):
+            with self.subTest(status=status, offset=offset):
+                attempt = event("attempt", 100, offset, status=status)
+                core = build((*monthly(dom=5), attempt), requested=900)
+                self.assertEqual([o.cash_date for o in core.occurrences], [date(2026, 2, 5), date(2026, 3, 5), date(2026, 4, 5)])
+                self.assertEqual(core.capacity.amount_safe_to_pay, money(400))
+
+    def test_unrelated_same_category_debit_stays_separate_from_description_series(self):
+        def named(record, text):
+            return replace(record, description=text)
+        history = tuple(named(e, "Streaming Plus") for e in monthly(category="subscriptions"))
+        rental = named(event("rental", 10, 13, category="subscriptions"), "Movie rental")
+        core = build((*history, rental), requested=900)
+        self.assertEqual(len(core.occurrences), 4)
+        self.assertEqual(core.capacity.amount_safe_to_pay, money(390))
+        self.assertEqual(core.capacity.proof_status, "conservative_bound")
+        self.assertIn("AMBIGUOUS_EXPLICIT_CYCLE", core.capacity.issue_codes)
+        matched = build((*history, named(event("bill", 40, 14, category="subscriptions"), "Streaming Plus")), requested=900)
+        self.assertEqual(matched.capacity.amount_safe_to_pay, money(460))
+        self.assertEqual(matched.capacity.proof_status, "resolved_under_policy")
+        self.assertEqual(len(matched.occurrences), 3)
+
     def test_authoritative_series_end_suppresses_only_its_applicable_future_cycles(self):
         src = source()
         ended = fact("end", "h2", CancelClaim(), src, scope="series", action="end", effective_on=date(2026, 3, 1))
@@ -128,6 +151,7 @@ class RecurrenceTests(unittest.TestCase):
         self.assertEqual(core.capacity.amount_safe_to_pay, without.capacity.amount_safe_to_pay)
         residual = next(o for o in core.occurrences if o.covered_occurrence_ids)
         self.assertEqual((residual.home_amount, residual.budget_total_minor), (money(60), 10000))
+        self.assertNotIn("AMBIGUOUS_EXPLICIT_CYCLE", core.capacity.issue_codes)
 
     def test_essential_irregular_envelope_front_loads_observed_peak_weeks(self):
         # Four complete observed-span weeks, no periodic cadence; totals 70, 50, 90, 40.

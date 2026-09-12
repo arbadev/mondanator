@@ -20,7 +20,7 @@ import httpx
 from buy_wait import contracts as c
 from buy_wait.core import build_financial_context, replay_financial_plan
 from buy_wait.core.money import parse_money
-from buy_wait.evidence.adapter import adapt_extraction, event_descriptors
+from buy_wait.evidence.adapter import AdaptedEvidence, adapt_extraction, event_descriptors
 from buy_wait.evidence.cache import ExtractionCache
 from buy_wait.evidence.extractor import ExtractionResult, Extractor
 from buy_wait.evidence.openrouter_client import OpenRouterClient
@@ -157,7 +157,7 @@ class AdapterTests(unittest.TestCase):
         raw["facts"][0]["payload"] = dict(kind="state", axis="approval", value="confirmed")
         events = {"event_1": event(status="pending", direction="credit", category="salary")}
         adapted = adapt(raw, events)
-        self.assertEqual(adapted.batch.facts[0].claim, c.StateClaim("pending", approval_state="confirmed"))
+        self.assertEqual(adapted.batch.facts[0].claim, c.StateClaim(None, approval_state="confirmed"))
         core = build(adapted, events)
         self.assertEqual(core.occurrences, ())
         self.assertEqual(core.resolved_events[0].approval_state, "confirmed")
@@ -165,11 +165,113 @@ class AdapterTests(unittest.TestCase):
         raw["facts"][0]["payload"] = dict(kind="state", axis="obligation", value="outstanding")
         events = {"event_1": event(status="failed", day=-1)}
         adapted = adapt(raw, events)
-        self.assertEqual(adapted.batch.facts[0].claim, c.StateClaim("failed", obligation_state="outstanding"))
+        self.assertEqual(adapted.batch.facts[0].claim, c.StateClaim(None, obligation_state="outstanding"))
         core = build(adapted, events)
         self.assertEqual(core.occurrences, ())
         self.assertIn("OUTSTANDING_OBLIGATION_UNSCHEDULED", core.capacity.issue_codes)
         self.assertEqual(core.capacity.proof_status, "unresolved")
+
+    def test_approval_and_obligation_never_assert_cash_state(self):
+        def states(text, *observed):
+            raw = raw_amount(text)
+            base = raw["facts"][0]
+            raw["facts"] = []
+            for local_id, axis, value, operation in observed:
+                fact = copy.deepcopy(base)
+                fact.update(local_id=local_id, operation=operation, payload=dict(kind="state", axis=axis, value=value))
+                raw["facts"].append(fact)
+            return raw
+
+        def baseline(events):
+            return build(AdaptedEvidence(c.FactBatch("r1", "u1"), ()), events)
+
+        cases = [("debit", "Payment settled; the bill is closed", ("cash", "settled", "settle"), ("obligation", "closed", "settle"),
+                  dict(obligation_state="closed")),
+                 ("credit", "Salary settled and approved", ("cash", "settled", "settle"), ("approval", "confirmed", "confirm"),
+                  dict(approval_state="confirmed"))]
+        for direction, text, cash, meta, metadata in cases:
+            events = {"event_1": event(status="pending", direction=direction, day=-1,
+                                       category="salary" if direction == "credit" else "utilities")}
+            outcomes = set()
+            for order in ((0, 1), (1, 0)):
+                for ids in (("f1", "f2"), ("f2", "f1")):
+                    with self.subTest(direction=direction, order=order, ids=ids):
+                        observed = [(ids[0], *cash), (ids[1], *meta)]
+                        adapted = adapt(states(text, *(observed[i] for i in order)), events)
+                        claims = {f.claim for f in adapted.batch.facts}
+                        self.assertEqual(claims, {c.StateClaim("settled"), c.StateClaim(None, **metadata)})
+                        core = build(adapted, events)
+                        resolved = core.resolved_events[0]
+                        self.assertEqual((resolved.event.status, resolved.disposition), ("settled", "anchored_history"))
+                        self.assertEqual((resolved.approval_state, resolved.obligation_state),
+                                         (metadata.get("approval_state", "unknown"), metadata.get("obligation_state", "unknown")))
+                        self.assertEqual(set(resolved.fact_ids), {f.fact_id for f in adapted.batch.facts})
+                        self.assertIn("message:message_1", resolved.evidence_ids)
+                        self.assertEqual(core.occurrences, ())
+                        outcomes.add((core.capacity.amount_safe_to_pay, core.capacity.proof_status))
+            self.assertEqual(outcomes, {(c.Money("USD", 90000), "resolved_under_policy")})
+
+        events = {"event_1": event(status="pending", day=-1)}
+        adapted = adapt(states("The bill is closed", ("f1", "obligation", "closed", "settle")), events)
+        self.assertEqual(adapted.batch.facts[0].claim, c.StateClaim(None, obligation_state="closed"))
+        core, control = build(adapted, events), baseline(events)
+        resolved = core.resolved_events[0]
+        self.assertEqual((resolved.event.status, resolved.disposition, resolved.obligation_state), ("pending", "reserve", "closed"))
+        self.assertEqual(resolved.fact_ids, (adapted.batch.facts[0].fact_id,))
+        self.assertEqual((core.capacity.amount_safe_to_pay, core.capacity.proof_status),
+                         (control.capacity.amount_safe_to_pay, control.capacity.proof_status))
+        self.assertEqual(core.capacity.amount_safe_to_pay, c.Money("USD", 80000))
+
+        events = {"event_1": event(status="scheduled", direction="credit", category="salary", day=5)}
+        adapted = adapt(states("Salary approved", ("f1", "approval", "confirmed", "confirm")), events)
+        core, control = build(adapted, events), baseline(events)
+        self.assertEqual((core.resolved_events[0].event.status, core.resolved_events[0].disposition), ("scheduled", "future_cash"))
+        self.assertEqual([(o.cash_date, o.home_amount) for o in core.occurrences],
+                         [(o.cash_date, o.home_amount) for o in control.occurrences])
+        self.assertEqual(len(core.occurrences), 1)
+        self.assertEqual(replace(core.capacity, context_hash=""), replace(control.capacity, context_hash=""))
+        with self.assertRaises(ValueError):
+            c.StateClaim(None)
+
+    def test_unspecified_series_window_is_an_issue_not_a_guessed_scope(self):
+        days = [date(2025, 11, 1), date(2025, 12, 1), date(2026, 1, 1)]
+        events = {f"history_{i}": replace(event(eid=f"history_{i}", status="settled", direction="credit", category="salary"),
+                                          event_date=day, settlement_date=day, description="Regular salary")
+                  for i, day in enumerate(days)}
+        target = c.SeriesTarget("u1", "salary", "credit", "USD", description_key="regular salary")
+        text = "Regular salary increases 10 percent from 2026-02-01 to 2026-02-28"
+
+        def scaled(scope, start=None, end=None, anchor=None):
+            raw = raw_amount(text, direction="credit")
+            fact = raw["facts"][0]
+            fact["subject"].update(scope="series", event_id=None)
+            fact["payload"] = dict(kind="relative_change", measure="percent", value="10", currency=None, change="increase", base_role="regular_salary")
+            fact["operation"] = "amend"
+            fact["effect_window"] = dict(scope=scope, start_date=start, end_date=end, anchor_quote=anchor)
+            adapted = adapt(raw, events, resolved_targets={"f1": target})
+            return adapted, build(adapted, events)
+
+        adapted, core = scaled("unspecified")
+        self.assertEqual(adapted.batch.facts, ())
+        issue = next(i for i in adapted.batch.issues if i.code == "UNSPECIFIED_SERIES_SCOPE")
+        self.assertEqual((issue.severity, issue.source_ids), ("blocking", ("message:message_1",)))
+        self.assertEqual(core.capacity.proof_status, "unresolved")
+        self.assertNotIn(c.Money("USD", 11000), {o.home_amount for o in core.occurrences})
+        self.assertFalse(replay_financial_plan(core, (c.Payment(R, c.Money("USD", 1), "p"),)).safe)
+
+        feb = [date(2026, m, 1) for m in (2, 3, 4, 5)]
+        for scope, bounds, expected in [("once", (), [11000, 10000, 10000, 10000]),
+                                        ("next_occurrence", (), [11000, 10000, 10000, 10000]),
+                                        ("date_range", ("2026-02-01", "2026-02-28", "from 2026-02-01 to 2026-02-28"), [11000, 10000, 10000, 10000]),
+                                        ("until_further_notice", (), [11000] * 4),
+                                        ("from_date", ("2026-02-01", None, "from 2026-02-01"), [11000] * 4)]:
+            with self.subTest(scope=scope):
+                adapted, core = scaled(scope, *bounds)
+                self.assertEqual(adapted.batch.facts[0].claim, c.SeriesScaleClaim(Decimal("1.1")))
+                self.assertEqual(adapted.batch.facts[0].scope, "occurrence" if scope in {"once", "next_occurrence"} else "series")
+                self.assertEqual(core.capacity.proof_status, "resolved_under_policy")
+                self.assertEqual([o.cash_date for o in core.occurrences], feb)
+                self.assertEqual([o.home_amount.minor for o in core.occurrences], expected)
 
     def test_retry_is_not_dedup_and_delivered_is_not_settled(self):
         raw = raw_amount("This is a retry of the prior charge")

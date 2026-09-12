@@ -189,15 +189,19 @@ class DateClaim:
 
 @dataclass(frozen=True)
 class StateClaim:
-    value: CashState
+    """value=None is a metadata-only observation: it asserts no cash state."""
+    value: Optional[CashState]
     approval_state: Literal["confirmed", "unconfirmed", "conditional", "unknown"] = "unknown"
     obligation_state: Literal["outstanding", "closed", "disputed", "unknown"] = "unknown"
     kind: str = field(default="cash_state", init=False)
 
     def __post_init__(self):
-        _choice(self.value, CASH_STATES, "cash state")
+        if self.value is not None:
+            _choice(self.value, CASH_STATES, "cash state")
         _choice(self.approval_state, ("confirmed", "unconfirmed", "conditional", "unknown"), "approval state")
         _choice(self.obligation_state, ("outstanding", "closed", "disputed", "unknown"), "obligation state")
+        if self.value is None and self.approval_state == "unknown" and self.obligation_state == "unknown":
+            raise ValueError("metadata-only state claim needs an approval or obligation observation")
 
 
 @dataclass(frozen=True)

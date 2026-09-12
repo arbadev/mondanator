@@ -210,6 +210,57 @@ class FactCompatibilityTests(unittest.TestCase):
                          facts=(early, later), sources=(src,))
         self.assertEqual(boundary.occurrences[0].home_amount, money("704.05"))
 
+    def test_unknown_payment_date_reserves_highest_live_tier_not_request_day_tier(self):
+        src = source(kind="image")
+        expired = fact("expired", "phone", AmountClaim(money("900.00"), "payable"), src, valid_until=date(2026, 1, 31))
+        early = fact("early", "phone", AmountClaim(money("704.05"), "payable"), src, valid_until=date(2026, 2, 6))
+        later = fact("later", "phone", AmountClaim(money("822.05"), "payable"), src, effective_on=date(2026, 2, 7))
+        core = build((event("phone", None, None, status="pending"),), minimum=100, requested=900,
+                     facts=(expired, early, later), sources=(src,))
+        self.assertIsNone(core.occurrences[0].cash_date)
+        self.assertEqual(core.occurrences[0].home_amount, money("822.05"))
+        self.assertEqual(core.capacity.amount_safe_to_pay, money("77.95"))
+        self.assertEqual(core.capacity.proof_status, "conservative_bound")
+        self.assertIn("UNKNOWN_DATE_TIER_BOUND", core.capacity.issue_codes)
+        self.assertEqual(core.resolved_events[0].fact_ids, ("later",))
+        self.assertIn(src.source_id, core.resolved_events[0].evidence_ids)
+        self.assertEqual(sum(1 for c in core.baseline.checkpoints if c.phase == "reservation"), 1)
+
+    def test_unknown_date_bound_resolves_precedence_only_within_overlapping_windows(self):
+        old = source("message:old", known=datetime(2026, 1, 30, tzinfo=timezone.utc))
+        new = source("message:new", known=datetime(2026, 2, 1, tzinfo=timezone.utc))
+
+        def phone(day, *facts, amount=None):
+            return build((event("phone", amount, day, status="pending"),), minimum=100, requested=900,
+                         facts=facts, sources=(old, new))
+
+        amend = fact("amend", "phone", AmountClaim(money(600), "payable"), new, action="amend", valid_until=date(2026, 2, 6))
+        core = phone(None, amend, amount=800)
+        self.assertEqual(core.occurrences[0].home_amount, money(800))
+        self.assertEqual(core.capacity.amount_safe_to_pay, money(100))
+        self.assertEqual(core.capacity.proof_status, "conservative_bound")
+
+        later = fact("later", "phone", AmountClaim(money("822.05"), "payable"), old, effective_on=date(2026, 2, 7))
+        early = fact("early", "phone", AmountClaim(money("704.05"), "payable"), new, valid_until=date(2026, 2, 6))
+        core = phone(None, later, early)
+        self.assertEqual(core.occurrences[0].home_amount, money("822.05"))
+        self.assertEqual(core.capacity.amount_safe_to_pay, money("77.95"))
+        self.assertEqual(core.resolved_events[0].fact_ids, ("later",))
+        self.assertEqual(phone(5, later, early).occurrences[0].home_amount, money("704.05"))
+        self.assertEqual(phone(8, later, early).occurrences[0].home_amount, money("822.05"))
+
+        uncovered = phone(None, early)
+        self.assertIsNone(uncovered.capacity.amount_safe_to_pay)
+        self.assertEqual(uncovered.capacity.proof_status, "unresolved")
+        self.assertIn("MISSING_AMOUNT", uncovered.capacity.issue_codes)
+
+        stale = fact("stale", "phone", AmountClaim(money(900), "payable"), old, valid_until=date(2026, 2, 6))
+        fresh = fact("fresh", "phone", AmountClaim(money(650), "payable"), new, valid_until=date(2026, 2, 6))
+        tier = fact("tier", "phone", AmountClaim(money(700), "payable"), new, effective_on=date(2026, 2, 7))
+        overlapping = phone(None, stale, fresh, tier)
+        self.assertEqual(overlapping.occurrences[0].home_amount, money(700))
+        self.assertEqual(overlapping.capacity.amount_safe_to_pay, money(200))
+
     def test_approved_pending_income_is_not_settled(self):
         src = source()
         approved = fact("approved", "salary", StateClaim("pending", approval_state="confirmed"), src, action="confirm")

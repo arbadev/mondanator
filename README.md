@@ -27,7 +27,14 @@ git clone https://github.com/arbadev/mondanator.git
 cd mondanator
 ```
 
-The current **integration foundation** uses Python **3.9+**, with no third-party runtime dependencies at this checkpoint. Python 3.9.6 is locally tested; CI is configured for 3.9 and 3.12. See [`docs/integration.md`](docs/integration.md) for exact module boundaries and remaining dependencies. This checkpoint is **not a complete financial agent**.
+This checkpoint requires Python **3.10+**; the tested baseline is Python **3.13** with the exact pins in `requirements.txt` (`pydantic==2.13.5`, `httpx==0.28.1`, `Pillow==12.3.0`). CI runs the offline tests on Python 3.13. The evidence cache uses POSIX `fcntl` locking, so macOS/Linux are the supported platforms; Windows is not supported. See [`docs/integration.md`](docs/integration.md) for exact module boundaries and remaining dependencies. This checkpoint is **not a complete financial agent**.
+
+Install the pinned dependencies into a virtual environment:
+
+```bash
+python3.13 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+```
 
 Your solution must:
 
@@ -38,12 +45,14 @@ Your solution must:
 Run the available **read-only** checks and offline behavioral tests:
 
 ```bash
-python3 code/main.py --dataset dataset --check-inputs
-python3 code/evaluation/main.py --dataset dataset
-python3 -m unittest discover -s code/tests -p 'test_*.py' -v
+.venv/bin/python code/main.py --dataset dataset --check-inputs
+.venv/bin/python code/evaluation/main.py --dataset dataset
+.venv/bin/python -m unittest discover -s code/tests -p 'test_*.py' -v
 ```
 
-On Windows, use `python` instead of `python3` if that is the installed command. An optional virtual environment can be created with `python3 -m venv .venv`; install its dependencies using `.venv/bin/python -m pip install -r requirements.txt` (Windows: `.venv\\Scripts\\python -m pip install -r requirements.txt`). The current requirements file is stdlib-only.
+The offline tests use synthetic/public fixtures and a mocked HTTP transport; they make no model calls and read no API key or `.env`.
+
+The offline evidence module (`code/buy_wait/evidence`) delivers source selection, image checks, the private extraction schema, the single FactBatch adapter, a cache-only replay path and UsageEvent accounting. Live OpenRouter inference, measured model quality, final-run usage reporting and final output remain unverified and unauthorized at this checkpoint.
 
 Neither inspection command generates predictions, performs extraction, reads credentials or certifies financial safety. The sample inspector checks all 25 fixtures with expected fields separated. The final inference CLI, usage aggregation, package construction and clean reproduction will be connected only after committed financial/evidence/planning dependencies and the required correctness/freeze/run authority; `python3 code/main.py` without `--check-inputs` deliberately exits nonzero instead of inventing output.
 
