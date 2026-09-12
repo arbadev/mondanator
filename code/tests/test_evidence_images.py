@@ -4,8 +4,11 @@ import io
 import tempfile
 import unittest
 from pathlib import Path
+import sys
 
 from PIL import Image
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from buy_wait.evidence.images import resolve_image, validate_png
 from buy_wait.evidence.schema import EvidenceError

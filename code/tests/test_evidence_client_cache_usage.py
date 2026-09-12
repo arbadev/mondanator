@@ -7,8 +7,11 @@ import unittest
 from dataclasses import replace
 from decimal import Decimal
 from pathlib import Path
+import sys
 
 import httpx
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from buy_wait.evidence.cache import ExtractionCache
 from buy_wait.evidence.extractor import Extractor, make_context
