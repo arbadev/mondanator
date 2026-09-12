@@ -168,15 +168,21 @@ def normalize_events(data: FinancialInput, batch: FactBatch):
         settlement, date_ids = _choose(event, dates, "settlement_date", sources)
         event = replace(event, settlement_date=settlement)
         active = [f for f in matched if applicable(f, settlement or data.request_date)]
-        monetary = [f for f in active if isinstance(f.claim, AmountClaim)
+        priced = active if settlement is not None else [
+            f for f in matched if f.valid_until is None or f.valid_until >= data.request_date]
+        monetary = [f for f in priced if isinstance(f.claim, AmountClaim)
                     and f.claim.role == ("payable" if event.direction == "debit" else "net_cash")]
         if any(f.claim.value.currency != event.currency for f in monetary):
             issues.append(issue("FACT_CURRENCY_MISMATCH", "amount fact currency differs from event", target=(event.event_id,)))
             monetary = []
         amount, amount_ids = _choose(event, monetary, "amount", sources)
         if event.direction == "debit" and any(f.effective_on or f.valid_until for f in monetary):
-            issues.append(issue("SETTLEMENT_APPLICABILITY_PROXY", "inclusive bill tiers resolved using supported settlement date; no earlier paid-date evidence",
-                                target=(event.event_id,), severity="info", impact="none"))
+            if settlement is None:
+                issues.append(issue("UNKNOWN_DATE_TIER_BOUND", "payment date unknown; the highest still-applicable bill tier is reserved as a bound",
+                                    target=(event.event_id,), severity="warning", impact="debit"))
+            else:
+                issues.append(issue("SETTLEMENT_APPLICABILITY_PROXY", "inclusive bill tiers resolved using supported settlement date; no earlier paid-date evidence",
+                                    target=(event.event_id,), severity="info", impact="none"))
         states = [f for f in active if isinstance(f.claim, (StateClaim, CancelClaim))]
         status, state_ids = _choose(event, states, "status", sources)
         event = replace(event, amount=amount, status=status)
@@ -241,7 +247,7 @@ def normalize_events(data: FinancialInput, batch: FactBatch):
         else:
             disposition, reason = "unresolved", "UNSUPPORTED_CASH_STATE"
         ids = tuple(sorted(set((*date_ids, *amount_ids, *state_ids, *(f.fact_id for f in roles)))))
-        evidence_ids = tuple(sorted({event.source.source_id, *(e.source_id for f in active for e in f.evidence)}))
+        evidence_ids = tuple(sorted({event.source.source_id, *(e.source_id for f in (*active, *monetary) for e in f.evidence)}))
         result.append(ResolvedEvent(event.event_id, (event.event_id,), event, disposition, reason, ids,
                                     evidence_ids, role, approval, obligation))
 
