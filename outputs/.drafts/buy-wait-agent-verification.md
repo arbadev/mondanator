@@ -46,7 +46,7 @@ Public sample cross-check: `request_06`, `request_11`, and `request_21` explicit
 - A PubMed HTML 403 and HackerRank Access Denied are access failures, not proof of nonexistent sources or a closed contest.
 - A later supplied-JPEG read failed with EPERM. Do not claim that repeat check passed.
 - Recurrence thresholds, balance snapshots, horizon inclusivity, installment-month semantics and money rounding remain documented implementation assumptions.
-- The known unignored transcript was not repaired; no .gitignore or source code change is authorized by this research.
+- The known unignored transcript was not repaired; no .gitignore or source code change is authorized by this research. Since resolved: `.gitignore` now lists `log.txt`.
 
 ## Publication checks
 

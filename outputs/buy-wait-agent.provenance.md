@@ -23,7 +23,7 @@ High-confidence primary facts include the eight-field output, 90-day minimum-bal
 
 ## Local primary evidence
 
-Project root: `/Users/and3/And3 working/challenger/mondanator`.
+Project root: `<local project root>`.
 
 | Source | What was inspected | Use and limitation |
 |---|---|---|
@@ -36,11 +36,11 @@ Project root: `/Users/and3/And3 working/challenger/mondanator`.
 | `dataset/media/images/image_01.png` | One public payroll image | Gross/deductions/net distinction; sensitive personal fields were not transcribed |
 | Supplied Downloads JPEG | Earlier decoded view and investigator description of all five captions | Repeat lead read during the final check returned EPERM; the report discloses this |
 | `code/main.py` and root `output.csv` | Tracked empty-file evidence and existence check | Main file remained zero bytes; predictions remained absent |
-| `log.txt` ignore state | Read-only Git ignore check in local report | Not ignored despite README wording; not repaired by research |
+| `log.txt` ignore state | Read-only Git ignore check in local report | Not ignored despite README wording; not repaired by research; since resolved by `.gitignore` |
 
 The local investigator's disposable copy matched the selected source commit. Its temporary location is an execution detail, not a durable dependency for the report. The copied evidence file below survives cleanup and includes exact aggregate commands/results.
 
-- Durable original: `/Users/and3/.firstmate-projects/742179949d618839b3b66086996316e808b313edf513422608293fc75d87aae4/data/bw-evidence-k7/report.md`
+- Durable original: `<local evidence store>/bw-evidence-k7/report.md`
 - Project copy: `outputs/.drafts/buy-wait-agent-research-local.md`
 - Byte comparison between original and project copy: **PASS**.
 - Copy SHA-256: `a13a2a865aa010bedc63ba3235e1275674fc536375dc056aa09357b60f819d77`.

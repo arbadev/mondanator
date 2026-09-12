@@ -247,7 +247,7 @@ Do not overwrite the blank `dataset/output.csv` or package it as the final predi
 
 The required usage report must correspond to the final run that produced the submitted `output.csv`: exact provider/model names, calls, input/output tokens, totals and per-request averages, estimated total/per-request costs, and per-model plus overall totals if multiple models are used. Include retries and shared extraction calls in full-run totals; allocate shared cost transparently. Keep research/coding-assistant usage separate from application inference. If the final application uses no token-billed models, report that honestly rather than inventing token usage. [L2; accounting proposal]
 
-**Current packaging issues:** `code/main.py` is empty; predictions do not yet exist; `log.txt` was not ignored by Git at inspection despite the README saying it is. Before any future commit, ensure the transcript is excluded from Git while retaining it for submission, and confirm it covers the development conversation rather than assuming the scout's entries cover earlier turns. No ignore-file or implementation fix was made by this research. [L4]
+**Current packaging issues:** `code/main.py` is empty; predictions do not yet exist; `log.txt` was not ignored by Git at inspection despite the README saying it is (since resolved: `.gitignore` now lists `log.txt`). Before any future commit, ensure the transcript is excluded from Git while retaining it for submission, and confirm it covers the development conversation rather than assuming the scout's entries cover earlier turns. No ignore-file or implementation fix was made by this research. [L4]
 
 Exclude credentials, `.env`, `.git`, organizer-only files, hidden labels, unnecessary financial-data copies, and private research/operational artifacts. If dataset assets are required inside the ZIP, include only permitted participant assets and document their placement; portal-specific inclusion and size requirements remain unverified. [L2; packaging recommendation]
 
@@ -284,7 +284,7 @@ These are uncertainties to document, not assertions that the rules permit arbitr
 - L2: `problem_statement.md`, full document; especially output semantics, 90-day safety, plan ranking and submission.
 - L3: `AGENTS.md`, participant data, financial rules, logging and mandatory submission URL.
 - L4: supervised local evidence report at commit `963ad7eb3d058ace2bf2e8bf4324472c981f0840`; final local research-note copy pending.
-- I1: supplied WhatsApp JPEG, inspected by scout and lead; file path recorded in plan/local evidence.
+- I1: supplied JPEG, inspected by scout and lead; file path recorded in plan/local evidence.
 - S1: https://scikit-learn.org/stable/modules/linear_model.html#logistic-regression
 - S2: https://scikit-learn.org/stable/modules/calibration.html
 - S3: https://scikit-learn.org/stable/modules/cross_validation.html

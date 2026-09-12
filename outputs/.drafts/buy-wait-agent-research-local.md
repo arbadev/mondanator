@@ -2,12 +2,12 @@
 
 ## Scope, provenance, and safety
 
-- **Source checkout inspected:** `/Users/and3/.treehouse/mondanator-e0179a/1/mondanator`
-- **Selected primary source:** `/Users/and3/And3 working/challenger/mondanator`
+- **Source checkout inspected:** `<local worktree checkout>`
+- **Selected primary source:** `<local project root>`
 - **Source commit:** `963ad7eb3d058ace2bf2e8bf4324472c981f0840` in both locations.
 - **Git state:** disposable checkout was at detached HEAD and clean before and after inspection. The configured remote is `git@github.com:interviewstreet/hackerrank-orchestrate-september26.git`; it was listed locally but never contacted.
 - **Research boundary:** local, participant-facing evidence only. I read `AGENTS.md`, all of `README.md`, all of `problem_statement.md`, the approved plan, the only documented starter entry point, participant CSV schemas/aggregates, the supplied JPEG, all image metadata, and one bounded participant image. I did **not** inspect organizer-only files, generate evaluation predictions, train or benchmark a model, search external literature, call paid inference, install packages, make live financial calls, upload, push, commit, or open a PR.
-- **Primary-tree writes:** none except the specifically authorized append-only shared `log.txt`. `git check-ignore -v log.txt` returned no match; an explicit wrapper printed `NOT_IGNORED`, and `git ls-files '*gitignore*'` returned nothing. Thus the repository currently contradicts README's statement that `log.txt` is gitignored (`README.md:162-171`). I did not create or edit `.gitignore`, as directed.
+- **Primary-tree writes:** none except the specifically authorized append-only shared `log.txt`. `git check-ignore -v log.txt` returned no match; an explicit wrapper printed `NOT_IGNORED`, and `git ls-files '*gitignore*'` returned nothing. Thus the repository currently contradicts README's statement that `log.txt` is gitignored (`README.md:162-171`). I did not create or edit `.gitignore`, as directed. Since resolved: `.gitignore` now lists `log.txt`.
 - **Approval:** the dispatch records the user's exact approval as `yes`; the current on-disk plan also records `APPROVED` and that exact reply. At initial read the plan still showed its pre-approval state, but the lead updated it during this task.
 
 ## Bottom line
@@ -145,7 +145,7 @@ A bounded public representation appears at `request_payment_options.csv:2-5`: on
 
 ### Supplied JPEG: visual content
 
-Path: `/Users/and3/Downloads/WhatsApp Image 2026-09-12 at 07.59.23.jpeg`; `file` reports a valid progressive 1132×1552 JPEG. The image-capable reader decoded it successfully.
+Path: `<supplied image>`; `file` reports a valid progressive 1132×1552 JPEG. The image-capable reader decoded it successfully.
 
 Legible content:
 
@@ -323,7 +323,7 @@ wc -l AGENTS.md README.md problem_statement.md code/main.py dataset/*.csv
 Key output:
 
 ```text
-cwd=/Users/and3/.treehouse/mondanator-e0179a/1/mondanator
+cwd=<local worktree checkout>
 commit=963ad7eb3d058ace2bf2e8bf4324472c981f0840
 branch=<empty: detached HEAD>
 git status --short=<empty: clean>
@@ -422,7 +422,7 @@ PY
 ### Image commands
 
 ```bash
-file '/Users/and3/Downloads/WhatsApp Image 2026-09-12 at 07.59.23.jpeg' dataset/media/images/*.png
+file '<supplied image>' dataset/media/images/*.png
 # Then used the image-capable local read tool on the supplied JPEG and dataset/media/images/image_01.png.
 ```
 

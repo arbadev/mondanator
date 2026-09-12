@@ -8,7 +8,7 @@
 ## Key questions
 
 1. What do `README.md`, `problem_statement.md`, the project instructions, and participant-facing input/output files actually require? Which decisions are required beyond a binary buy/wait label?
-2. What does the supplied illustration propose, and where does that approach fit or fail? Inspect `/Users/and3/Downloads/WhatsApp Image 2026-09-12 at 07.59.23.jpeg` only after approval.
+2. What does the supplied illustration propose, and where does that approach fit or fail? Inspect `<supplied image>` only after approval.
 3. Is there a defensible supervised-learning problem here: an available target, enough permitted labeled examples, and a leakage-safe evaluation design? Distinguish financial feasibility from subjective purchase value and preference prediction.
 4. How do linear regression, logistic regression, a simple tree-based alternative, deterministic cash-flow rules, constrained payment scheduling, and a hybrid evidence-extraction/planning system compare for this particular dataset and deadline?
 5. How should the agent reconstruct financial context, interpret messages/images as untrusted evidence, forecast cash flow, choose among supplied payment options, and produce the exact required output fields without violating financial constraints?
