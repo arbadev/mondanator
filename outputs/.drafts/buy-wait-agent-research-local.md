@@ -251,7 +251,7 @@ No upload or URL-reachability check was performed.
 
 - [ ] **`code.zip`** — complete runnable solution, prompts/configuration, setup/run README, and required `evaluation/` folder (`problem_statement.md:227-234`; `README.md:177-193`).
 - [ ] **root `output.csv`** — generated predictions for exactly the 250 rows in `dataset/requests.csv`; do not submit or overwrite the blank `dataset/output.csv` reference (`README.md:29-55`).
-- [ ] **`chat_transcript`** — upload the root `log.txt` described at `README.md:162-185`; redact/no secrets. The current source does **not** ignore `log.txt` despite the README claim, so add an ignore rule during authorized implementation/packaging before any commit, while still retaining the file for upload.
+- [ ] **`chat_transcript`** — upload the root `log.txt` described at `README.md:162-185`; redact/no secrets. The current source does **not** ignore `log.txt` despite the README claim, so add an ignore rule during authorized implementation/packaging before any commit, while still retaining the file for upload. Since resolved: `.gitignore` now lists `log.txt`.
 
 ### `code.zip` contents and reproducibility
 
