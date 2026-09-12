@@ -1,12 +1,13 @@
 """Analytic planning integration: real contracts, recurrence and the sole replay.
 
-Only the not-yet-routed integration envelope has a test-only attribute view.
+All domain records, including the integration-owned PlanningContext, are real.
 No financial simulator/contract is stubbed; wraps= below counts real calls.
 """
 from copy import deepcopy
 from dataclasses import replace
 from datetime import timedelta
 from itertools import permutations
+from math import prod
 import unittest
 from unittest.mock import patch
 
@@ -23,24 +24,36 @@ from buy_wait.planning.ranking import (
 )
 from test_core_explicit import R, build, event, money
 from test_core_recurrence import flexible_core, monthly
-from test_planning_support import envelope, option, preferences, request
+from buy_wait.data import PlanningContext, PlanningPreferences, RequestInput, SuppliedOption
 
 
 def view(core, *, methods=("full_payment", "partial_payment", "installments"),
          options=(), deadline=None, allows_partial=True, cap=3, **prefs):
-    return envelope(
-        request=request(request_id=core.request_id, user_id=core.user_id, request_date=core.request_date,
-                        requested_amount=core.requested, desired_completion_date=deadline or core.request_date + timedelta(days=70),
-                        allows_partial_payment=allows_partial),
-        preferences=preferences(methods=frozenset(methods), max_installment_months=cap, **prefs),
-        options_by_id={o.payment_option_id: o for o in options},
+    typed_request = RequestInput(
+        request_id=core.request_id, user_id=core.user_id, request_date=core.request_date,
+        requested_amount=core.requested, desired_completion_date=deadline or core.request_date + timedelta(days=70),
+        allows_partial_payment=allows_partial, request_type="purchase", request_text="Synthetic analytic request",
     )
+    defaults = dict(protected_categories=frozenset({"rent"}), reducible_categories=frozenset({"streaming", "dining"}),
+                    stoppable_categories=frozenset({"streaming", "cloud"}), financial_priorities=())
+    defaults.update(prefs)
+    typed_preferences = PlanningPreferences(methods=frozenset(methods), max_installment_months=cap, **defaults)
+    options = list(options)
+    # The real envelope requires 2-4 offers. Padding is synthetic input, not a
+    # production generator behavior; identical full offers do not invent credit.
+    while len(options) < 2:
+        options.append(SuppliedOption(
+            f"payment_option_999999{len(options)}", core.request_id, "full_payment", core.requested,
+            1, core.request_date, None, Money(core.requested.currency, 0), core.requested,
+        ))
+    return PlanningContext(typed_request, typed_preferences, tuple(options))
 
 
 def offer(core, *, oid="payment_option_01", fee=0, count=3, interval=30, first=None):
     total = core.requested.minor + fee
     assert total % count == 0
-    return option(payment_option_id=oid, request_id=core.request_id, payment_amount=Money("USD", total // count),
+    return SuppliedOption(payment_option_id=oid, request_id=core.request_id, payment_method="installments",
+                  payment_amount=Money("USD", total // count),
                   number_of_payments=count, first_payment_date=first or core.request_date,
                   payment_frequency_days=interval, financing_fee=Money("USD", fee),
                   total_payable_amount=Money("USD", total))
@@ -133,7 +146,7 @@ class ReplayIntegrationTests(unittest.TestCase):
         batches, results, coverage, ranked, status = run_phases(core, env)
         self.assertEqual(len(batches), 1)
         self.assertEqual(coverage["changed_phase"], "skipped_by_P2")
-        self.assertEqual([v["outcome"] for v in results], ["invalid", "valid", "valid"])
+        self.assertEqual([v["outcome"] for v in results], ["invalid", "invalid", "valid", "valid"])
         selected = ranked["winner"]["plan"]
         self.assertEqual(selected.method, "partial_payment")
         self.assertEqual([(p.date, p.amount) for p in selected.payments], [(R, money(100)), (R + timedelta(days=2), money(500))])
@@ -230,11 +243,13 @@ class ActionFamilyIntegrationTests(unittest.TestCase):
         env = view(core, reducible_categories=categories, stoppable_categories=categories)
         result = action_families(env, core)
         self.assertEqual(len(core.series), 4)
-        # Four series, each with three aliases x two modes: 4*6 + 6*36 + 4*216.
-        self.assertEqual(len(result["families"]), 1104)
+        # All 1,104 alias/mode supports are represented by 64 effect-equivalent
+        # families: 4*2 + 6*4 + 4*8. No alias multiplies expensive replay work.
+        self.assertEqual(len(result["families"]), 64)
+        self.assertEqual(sum(prod(len(a) for a in f["alias_domains"]) for f in result["families"]), 1104)
         self.assertEqual({len(f["changes"]) for f in result["families"]}, {1, 2, 3})
         self.assertTrue(all(len(f["series_ids"]) == len(set(f["series_ids"])) for f in result["families"]))
-        self.assertEqual(len({f["family_id"] for f in result["families"]}), 1104)
+        self.assertEqual(len({f["family_id"] for f in result["families"]}), 64)
 
     def test_later_changed_one_shot_has_with_plan_wait_status_and_unchanged_full_date(self):
         core = flexible_core((*monthly(category="dining", flexible=True),
@@ -269,11 +284,22 @@ class ActionFamilyIntegrationTests(unittest.TestCase):
         core = self.flexible()
         families = action_families(self.env(core), core)
         self.assertEqual(families["coverage"], "optimum_preserving_representatives")
-        self.assertEqual(len(families["families"]), 6)  # 3 real aliases x 2 legal modes.
+        self.assertEqual(len(families["families"]), 2)  # Each mode retains all 3 real aliases.
+        self.assertTrue(all(f["alias_domains"] == (("h0", "h1", "h2"),) for f in families["families"]))
         self.assertTrue(all(len(f["changes"]) == 1 for f in families["families"]))
         reductions = [f for f in families["families"] if isinstance(f["changes"][0], ReduceTo)]
         self.assertEqual({f["amount_domains"][0]["minimum_minor"] for f in reductions}, {4000})
         self.assertEqual({f["amount_domains"][0]["maximum_minor"] for f in reductions}, {10000})
+
+    def test_compressed_aliases_have_identical_real_replay_effects(self):
+        core = self.flexible()
+        for family in action_families(self.env(core), core)["families"]:
+            original = family["changes"][0]
+            expected = replay_financial_plan(core, (), changes=(original,))
+            self.assertTrue(expected.safe)  # Effect probe, not an empty purchase candidate.
+            for anchor in family["alias_domains"][0]:
+                change = Stop(anchor) if isinstance(original, Stop) else ReduceTo(anchor, original.new_amount)
+                self.assertEqual(replay_financial_plan(core, (), changes=(change,)), expected)
 
     def test_changed_full_plan_uses_real_negative_expense_deltas_and_original_capacity(self):
         core = self.flexible()
@@ -328,8 +354,7 @@ class ActionFamilyIntegrationTests(unittest.TestCase):
 class SearchAndStatusIntegrationTests(unittest.TestCase):
     def test_ambiguous_eligible_offer_blocks_optimum_but_forbidden_offer_does_not(self):
         core = build()
-        broken = offer(core)
-        broken.total_payable_amount = money(601)
+        broken = replace(offer(core), total_payable_amount=money(601))
         env = view(core, options=(broken,))
         _, _, _, ranked, status = run_phases(core, env)
         self.assertTrue(ranked["best_set"])
@@ -355,7 +380,7 @@ class SearchAndStatusIntegrationTests(unittest.TestCase):
         batch = generate_candidates(env, core)
         original = batch["plans"][0]
         changed = replace(original, candidate_id="different")
-        results = (evaluate_candidate(changed, env, core),)
+        results = (evaluate_candidate(changed, env, core), evaluate_candidate(batch["plans"][1], env, core))
         coverage = build_search_coverage((batch,), results, envelope=env, core=core,
                                          pruning_witness_plan_ids=(original.candidate_id,))
         ranked = rank_validated(results, search=coverage)
