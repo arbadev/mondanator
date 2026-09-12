@@ -82,6 +82,16 @@ class MetricTests(IntegrationCase):
         with self.assertRaises(DataError):
             self.compare(rows, audits={"unknown": {}})
 
+    def test_malformed_audit_cannot_claim_checked_safety_with_zero_violations(self):
+        rows = [prediction(request(1)), prediction(request(2))]
+        for audit in ({"safety": {"checked": True}}, {"safety": {"checked": True, "violations": "not a list"}}, False):
+            with self.subTest(audit=audit):
+                safety = self.compare(rows, audits={"request_1": audit})["metrics"]["audit_dimensions"]["safety"]
+                self.assertEqual(safety["checked"], 0)
+                self.assertEqual(safety["not_checked"], 2)
+                self.assertEqual(safety["invalid"], 1)
+                self.assertIsNone(safety["violations"])
+
     def test_mismatch_detector_does_not_invent_financial_root_cause(self):
         rows = [{**prediction(request(1)), "amount_safe_to_pay": "40"}, prediction(request(2))]
         errors = self.compare(rows)["errors"]

@@ -19,7 +19,8 @@ def main(argv=None):
         data = Dataset.load(args.dataset)
         requests, request_hash = load_requests(args.dataset)
         for request in requests:
-            data.context_for(request)
+            data.financial_input_for(request)
+            data.planning_context_for(request)
         print(json.dumps({
             "mode": "input-validation-only", "requests": len(requests),
             "profiles": len(data.profiles), "events": len(data.events),
