@@ -328,8 +328,9 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(first, second)
         self.assertIsNone(first.sources[0].actor_key)
         self.assertEqual(first.sources[0].row_number, 1)
-        self.assertEqual(first.sources[0].relative_path, "dataset/messages.csv")
-        self.assertEqual(first.sources[1].source_id, "message:message_1:row")
+        self.assertEqual(first.sources[0].relative_path, "messages.csv")
+        self.assertEqual(first.sources[1].source_id, "csv:messages.csv:message_1")
+        self.assertEqual(first.sources[1].content_sha256, "")  # no fabricated full-CSV hash
         self.assertEqual(first.batch.facts[0].evidence[0].supporting_text, "Amount due USD 120.00")
         self.assertEqual(adapt(raw, events, actor_key="verified:merchant").sources[0].actor_key, "verified:merchant")
         with self.assertRaises(EvidenceError):

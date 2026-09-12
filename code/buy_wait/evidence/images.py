@@ -67,5 +67,5 @@ def resolve_image(dataset_root: Path, image_id: str) -> ImageAsset:
     except (ValueError, OSError, RuntimeError):
         raise EvidenceError("invalid_image_path") from None
     width, height = validate_png(content)
-    return ImageAsset(image_id, f"dataset/media/images/{image_id}.png",
+    return ImageAsset(image_id, f"media/images/{image_id}.png",
                       hashlib.sha256(content).hexdigest(), width, height, content)

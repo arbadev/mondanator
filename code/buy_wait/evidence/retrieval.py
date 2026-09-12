@@ -24,6 +24,7 @@ class Source:
     row_sha256: str
     reasons: tuple[str, ...]
     text: str | None = field(default=None, repr=False)
+    csv_sha256: str | None = None
 
 
 @dataclass(frozen=True)
@@ -64,10 +65,20 @@ class EvidenceIndex:
     serializes request outputs or arbitrary additional profile fields.
     """
 
+    @classmethod
+    def from_context(cls, context: Mapping):
+        """Consume Dataset.context_for output without loading or parsing CSVs."""
+        request = context["request"]
+        return cls(messages=context["message_candidates"], images=context["image_candidates"],
+                   events={row["event_id"]: row for row in context["events"]},
+                   requests={request["request_id"]: {"user_id": request["user_id"]}},
+                   source_locations=context["source_locations"])
+
     def __init__(self, *, messages: Sequence[Mapping], images: Sequence[Mapping],
-                 events: Mapping[str, Mapping], requests: Mapping[str, Mapping]):
-        self.events = MappingProxyType({k: MappingProxyType(dict(v)) for k, v in events.items()})
-        self.requests = MappingProxyType({k: MappingProxyType(dict(v)) for k, v in requests.items()})
+                 events: Mapping[str, Mapping], requests: Mapping[str, Mapping],
+                 source_locations: Mapping[str, Mapping] | None = None):
+        self.events = MappingProxyType({k: MappingProxyType({"user_id": v.get("user_id"), "linked_event_id": v.get("linked_event_id")}) for k, v in events.items()})
+        self.requests = MappingProxyType({k: MappingProxyType({"user_id": v.get("user_id")}) for k, v in requests.items()})
         sources = []
         seen = set()
         for kind, rows, id_key in (("message", messages, "message_id"), ("image", images, "image_id")):
@@ -81,7 +92,11 @@ class EvidenceIndex:
                         raise EvidenceError("duplicate_source_id")
                     seen.add(source_id)
                     request_id, event_id = _nullable(row.get("request_id")), _nullable(row.get("related_event_id"))
-                    if request_id and (request_id not in requests or requests[request_id]["user_id"] != user):
+                    # The production request file intentionally omits public
+                    # samples and may not contain another request's metadata ID.
+                    # Unknown IDs remain unmatched selectors, not a reason to
+                    # read labels or manufacture a second request catalogue.
+                    if request_id in requests and requests[request_id]["user_id"] != user:
                         raise EvidenceError("cross_user_request")
                     if event_id and (event_id not in events or events[event_id]["user_id"] != user):
                         raise EvidenceError("cross_user_event")
@@ -93,8 +108,19 @@ class EvidenceIndex:
                     trusted_row = {id_key: raw_id, "user_id": user, "request_id": request_id, "related_event_id": event_id}
                     if kind == "message":
                         trusted_row.update(message_text=text, source_type=source_type, sent_at=known.isoformat())
+                    csv_hash = None
+                    if source_locations is not None:
+                        import re
+                        location = source_locations.get(source_id)
+                        if location is None or set(location) != {"relative_path", "row_number", "csv_sha256"}:
+                            raise EvidenceError("missing_source_location")
+                        if (location["relative_path"] != f"{kind}s.csv" or type(location["row_number"]) is not int
+                                or location["row_number"] < 1 or not isinstance(location["csv_sha256"], str)
+                                or not re.fullmatch(r"[0-9a-f]{64}", location["csv_sha256"])):
+                            raise EvidenceError("invalid_source_location")
+                        number, csv_hash = location["row_number"], location["csv_sha256"]
                     sources.append(Source(source_id, kind, user, request_id, event_id, source_type,
-                                          known, f"dataset/{kind}s.csv", number, digest(trusted_row), (), text))
+                                          known, f"{kind}s.csv", number, digest(trusted_row), (), text, csv_hash))
                 except KeyError:
                     raise EvidenceError("missing_source_field") from None
         self.sources = tuple(sorted(sources, key=_natural))

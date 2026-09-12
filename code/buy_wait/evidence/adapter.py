@@ -42,9 +42,10 @@ def event_descriptors(events: Mapping[str, core.EventRecord], *, user_id: str) -
 
 def _sources(result: ExtractionResult, actor_key: str | None) -> tuple[core.SourceRef, ...]:
     source = result.source
-    metadata = core.SourceRef("csv", source.source_id + ":row", source.relative_path,
-                              row_number=source.row_number, content_sha256=source.row_sha256)
-    path = source.relative_path if source.kind == "message" else "dataset/media/images/" + source.source_id.split(":", 1)[1] + ".png"
+    metadata = core.SourceRef("csv", "csv:" + source.relative_path + ":" + source.source_id.split(":", 1)[1], source.relative_path,
+                              row_number=source.row_number, content_sha256=source.csv_sha256 or "",
+                              locator="canonical_record_sha256=" + source.row_sha256)
+    path = source.relative_path if source.kind == "message" else "media/images/" + source.source_id.split(":", 1)[1] + ".png"
     document = core.SourceRef(source.kind, source.source_id, path,
                               row_number=source.row_number if source.kind == "message" else None,
                               source_type=source.source_type, actor_key=actor_key, known_at=source.known_at,
