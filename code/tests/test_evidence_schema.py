@@ -173,6 +173,34 @@ class SchemaTests(unittest.TestCase):
         with self.assertRaises(EvidenceError):
             self.valid(raw)
 
+    def test_decimal_support_is_exact_under_low_ambient_precision(self):
+        from decimal import localcontext
+        raw = observation(text="Net received EUR 12345678901", value="12345000000", raw="12345678901")
+        with localcontext() as context:
+            context.prec = 2
+            with self.assertRaisesRegex(EvidenceError, "unsupported_numeric_value"):
+                self.valid(raw, "Net received EUR 12345678901")
+            raw["facts"][0]["payload"]["value"] = "12345678901"
+            self.assertEqual(self.valid(raw, "Net received EUR 12345678901").facts[0].payload.value, "12345678901")
+
+    def test_numeric_substrings_and_removed_signs_are_not_evidence(self):
+        for text, raw_number in [("Net received EUR 1880", "880"), ("Net received EUR 880.00", "880"),
+                                 ("Net received EUR -880", "880"), ("Net received EUR 1,880", "880")]:
+            with self.subTest(text=text), self.assertRaisesRegex(EvidenceError, "unsupported_numeric_value"):
+                self.valid(observation(text=text, value=raw_number, raw=raw_number), text)
+        self.valid(observation(text="Net received EUR880.00.", value="880.00", raw="880.00"), "Net received EUR880.00.")
+
+    def test_other_net_label_does_not_validate_gross_value(self):
+        text = "Total earnings 4780800; Net pay 4365000"
+        with self.assertRaisesRegex(EvidenceError, "component_as_cash"):
+            self.valid(observation(text=text, role="regular_salary", value="4780800", raw="4780800"), text)
+
+    def test_percent_requires_a_percent_unit_not_just_an_unrelated_number(self):
+        raw = observation(text="Salary was updated on day 10")
+        raw["facts"][0]["payload"] = dict(kind="relative_change", measure="percent", value="10", currency=None, change="increase", base_role="regular_salary")
+        with self.assertRaisesRegex(EvidenceError, "unsupported_percent_unit"):
+            self.valid(raw, "Salary was updated on day 10")
+
     def test_prompt_schema_is_closed_at_every_object(self):
         # Validate the machine-consumed schema meaning, not implementation text.
         schema = response_format()["json_schema"]["schema"]

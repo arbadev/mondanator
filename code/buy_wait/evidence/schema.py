@@ -9,6 +9,7 @@ import hashlib
 import json
 import re
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
@@ -301,7 +302,7 @@ def parse_extraction(raw: str | bytes) -> ModelExtraction:
         raise EvidenceError("schema_invalid") from None
 
 
-def _readable_numbers(raw: str) -> set[str]:
+def _readable_numbers(raw: str) -> set[Decimal]:
     """Conservative candidates for explicit plain/western/Indian/decimal-comma text.
 
     Ambiguous grouping returns all readings; validation only accepts a unique
@@ -309,16 +310,15 @@ def _readable_numbers(raw: str) -> set[str]:
     """
     if not re.fullmatch(r"[0-9][0-9.,]*", raw):
         return set()
-    from decimal import Decimal
     results = set()
     if re.fullmatch(r"\d+(?:\.\d+)?", raw):
-        results.add(str(Decimal(raw).normalize()))
+        results.add(Decimal(raw))
     if re.fullmatch(r"(?:\d{1,3}(?:,\d{3})+|\d{1,2}(?:,\d{2})*,\d{3})(?:\.\d+)?", raw):
-        results.add(str(Decimal(raw.replace(",", "")).normalize()))
+        results.add(Decimal(raw.replace(",", "")))
     if re.fullmatch(r"\d{1,3}(?:\.\d{3})+(?:,\d+)?", raw):
-        results.add(str(Decimal(raw.replace(".", "").replace(",", ".")).normalize()))
+        results.add(Decimal(raw.replace(".", "").replace(",", ".")))
     if re.fullmatch(r"\d+,\d{1,2}", raw):
-        results.add(str(Decimal(raw.replace(",", ".")).normalize()))
+        results.add(Decimal(raw.replace(",", ".")))
     return results
 
 
@@ -335,13 +335,16 @@ def _date_readings(raw: str) -> set[str]:
 
 
 def _quoted_dates(spans: list[Span]) -> set[str]:
-    pattern = r"\b(?:\d{4}-\d{2}-\d{2}|\d{1,2}[- ][A-Za-z]+[- ]\d{4}|\d{1,2}/\d{1,2}/\d{4})\b"
+    # Separate scans prevent a fragment such as "05 through 2026" from
+    # consuming the year before the ISO date in "704.05 through 2026-02-06".
+    patterns = (r"\b\d{4}-\d{2}-\d{2}\b", r"\b\d{1,2}[- ][A-Za-z]+[- ]\d{4}\b", r"\b\d{1,2}/\d{1,2}/\d{4}\b")
     dates = set()
     for span in spans:
-        for raw in re.findall(pattern, span.quote):
-            readings = _date_readings(raw)
-            if len(readings) == 1:
-                dates.update(readings)
+        for pattern in patterns:
+            for raw in re.findall(pattern, span.quote):
+                readings = _date_readings(raw)
+                if len(readings) == 1:
+                    dates.update(readings)
     return dates
 
 
@@ -381,14 +384,19 @@ def validate_support(extraction: ModelExtraction, *, source_id: str,
             if p.currency_basis == "linked_event" and (target is None or candidate_events[target].get("currency") != p.currency):
                 raise EvidenceError("currency_mismatch")
             labels = " ".join(span.quote for span in fact.evidence).casefold()
-            if p.role in {"net_received", "net_payable", "balance_due", "refund_amount"}:
-                component_label = re.search(r"\b(item bill|subtotal|gross|total earnings)\b", labels)
-                cash_label = re.search(r"\b(net pay|net amount|net received|balance due|amount due|cash paid|refund)\b", labels)
-                if component_label and not cash_label:
+            if p.role in {"net_received", "net_payable", "balance_due", "refund_amount", "regular_salary", "bonus", "commission", "one_off_arrears"}:
+                components = r"\b(item bill|subtotal|gross|total earnings)\b"
+                cash = r"\b(net pay|net amount|net received|balance due|amount due|cash paid|refund)\b"
+                component_label, cash_label = re.search(components, labels), re.search(cash, labels)
+                raw_pattern = r"[^0-9]{0,50}" + re.escape(p.raw or "")
+                component_value = p.raw and re.search(components + raw_pattern, labels)
+                cash_value = p.raw and re.search(cash + raw_pattern, labels)
+                if (component_label and not cash_label) or (component_value and not cash_value):
                     raise EvidenceError("component_as_cash")
             if p.value is not None:
                 numbers = _readable_numbers(p.raw)
-                if numbers != {str(Decimal(p.value).normalize())} or not any(p.raw in s.quote for s in fact.evidence):
+                token = r"(?<![0-9+-])(?<![0-9][.,])" + re.escape(p.raw) + r"(?![0-9]|[.,][0-9])"
+                if numbers != {Decimal(p.value)} or not any(re.search(token, s.quote) for s in fact.evidence):
                     raise EvidenceError("unsupported_numeric_value")
         if isinstance(p, DateClaim):
             if not any(p.raw in s.quote for s in fact.evidence):
@@ -399,6 +407,10 @@ def validate_support(extraction: ModelExtraction, *, source_id: str,
             tokens = [t for s in fact.evidence for t in re.findall(r"(?<![\w.,])[0-9]+(?:\.[0-9]+)?(?![\w.,])", s.quote)]
             if not any(Decimal(t) == Decimal(p.value) for t in tokens):
                 raise EvidenceError("unsupported_change")
+            if p.measure == "percent":
+                rates = [t for s in fact.evidence for t in re.findall(r"(?<![\w.,])([0-9]+(?:\.[0-9]+)?)\s*(?:%|percent\b|per cent\b|persen\b)", s.quote, re.IGNORECASE)]
+                if not any(Decimal(t) == Decimal(p.value) for t in rates):
+                    raise EvidenceError("unsupported_percent_unit")
 
 
 def response_format() -> dict:
