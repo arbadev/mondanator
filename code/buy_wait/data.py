@@ -10,9 +10,17 @@ import csv
 import hashlib
 import io
 import re
+from dataclasses import dataclass
 from datetime import date
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from types import MappingProxyType
+from typing import Mapping, Optional, Tuple
+
+from buy_wait.contracts import (
+    EventRecord, FinancialInput, FinancialProfile, FxRate, Money, SourceRef, canonical_hash,
+)
+from buy_wait.core.money import parse_money, parse_optional_money
 
 REQUEST_FIELDS = (
     "request_id", "user_id", "request_date", "request_type", "requested_amount",
@@ -144,8 +152,149 @@ def load_requests(root: Path):
     return requests, digest
 
 
+@dataclass(frozen=True)
+class RequestInput:
+    """The sole integration-owned eight-field typed purchase-request view."""
+    request_id: str
+    user_id: str
+    request_date: date
+    request_type: str
+    requested_amount: Money
+    desired_completion_date: date
+    allows_partial_payment: bool
+    request_text: str
+
+    def __post_init__(self):
+        if type(self.request_date) is not date or type(self.desired_completion_date) is not date:
+            raise DataError("typed request requires calendar dates")
+        if self.desired_completion_date < self.request_date or type(self.allows_partial_payment) is not bool:
+            raise DataError("invalid typed request deadline/partial flag")
+        if not isinstance(self.requested_amount, Money) or self.request_type not in _REQUEST_TYPES:
+            raise DataError("typed request requires canonical Money and request type")
+        if any(not isinstance(v, str) or not v.strip() for v in (self.request_id, self.user_id, self.request_text)):
+            raise DataError("typed request identifiers/text must be nonempty")
+
+
+@dataclass(frozen=True)
+class PlanningPreferences:
+    methods: frozenset
+    max_installment_months: Optional[int]
+    protected_categories: frozenset
+    reducible_categories: frozenset
+    stoppable_categories: frozenset
+    financial_priorities: Tuple[str, ...]
+
+    def __post_init__(self):
+        for field in ("methods", "protected_categories", "reducible_categories", "stoppable_categories"):
+            values = getattr(self, field)
+            if isinstance(values, str):
+                raise DataError("typed preferences require collections of complete tokens")
+            values = tuple(values)
+            if any(not isinstance(v, str) or not v for v in values):
+                raise DataError("typed preferences require collections of complete tokens")
+            object.__setattr__(self, field, frozenset(values))
+        if not self.methods <= {"full_payment", "partial_payment", "installments"}:
+            raise DataError("unknown exact payment preference token")
+        cap = self.max_installment_months
+        if cap is not None and (type(cap) is not int or cap <= 0):
+            raise DataError("installment cap must be None or a positive integer")
+        if isinstance(self.financial_priorities, str):
+            raise DataError("priorities require an ordered token collection")
+        object.__setattr__(self, "financial_priorities", tuple(self.financial_priorities))
+
+
+@dataclass(frozen=True)
+class SuppliedOption:
+    payment_option_id: str
+    request_id: str
+    payment_method: str
+    payment_amount: Money
+    number_of_payments: int
+    first_payment_date: date
+    payment_frequency_days: Optional[int]
+    financing_fee: Money
+    total_payable_amount: Money
+
+    def __post_init__(self):
+        if not all(isinstance(v, Money) for v in (self.payment_amount, self.financing_fee, self.total_payable_amount)):
+            raise DataError("supplied amounts require canonical Money")
+        if self.payment_method not in ("full_payment", "installments") or type(self.first_payment_date) is not date:
+            raise DataError("invalid typed option method/date")
+        if type(self.number_of_payments) is not int or self.number_of_payments < 1:
+            raise DataError("option count must be a positive integer")
+        interval = self.payment_frequency_days
+        if interval is not None and (type(interval) is not int or interval <= 0):
+            raise DataError("option interval must be None or a positive integer")
+        if any(not isinstance(v, str) or not v for v in (self.payment_option_id, self.request_id)):
+            raise DataError("option identifiers must be nonempty")
+
+
+@dataclass(frozen=True)
+class PlanningContext:
+    """CSV/envelope owner only; no core balances, capacity or plan/result clone.
+
+    options are stored once, in stable ID order. The index is an immutable view;
+    the hash covers the typed request/preferences/options, not mutable CSV order.
+    """
+    request: RequestInput
+    preferences: PlanningPreferences
+    options: Tuple[SuppliedOption, ...]
+
+    def __post_init__(self):
+        if not isinstance(self.request, RequestInput) or not isinstance(self.preferences, PlanningPreferences):
+            raise DataError("planning context requires the authoritative typed views")
+        options = tuple(self.options)
+        if not 2 <= len(options) <= 4 or any(not isinstance(o, SuppliedOption) for o in options):
+            raise DataError("planning context requires two to four typed supplied options")
+        if len({o.payment_option_id for o in options}) != len(options):
+            raise DataError("duplicate typed option ID")
+        if any(o.request_id != self.request.request_id for o in options):
+            raise DataError("typed option belongs to another request")
+        object.__setattr__(self, "options", tuple(sorted(options, key=lambda o: o.payment_option_id)))
+
+    @property
+    def options_by_id(self) -> Mapping[str, SuppliedOption]:
+        return MappingProxyType({o.payment_option_id: o for o in self.options})
+
+    @property
+    def context_hash(self) -> str:
+        return canonical_hash({"schema": "planning-context/v1", "request": self.request,
+                               "preferences": self.preferences, "options": self.options})
+
+
+def _tokens(value):
+    if value in ("", "none"):
+        return frozenset()
+    values = value.split("|")
+    if any(not v or v != v.strip() for v in values):
+        raise DataError("malformed pipe-delimited preference/category list")
+    return frozenset(values)
+
+
+def _optional_count(value):
+    if value == "":
+        return None
+    if not re.fullmatch(r"[1-9][0-9]*", value):
+        raise DataError("count/interval must be blank or a positive integer")
+    return int(value)
+
+
+def _preferences(profile):
+    methods = _tokens(profile["payment_methods_user_will_consider"])
+    if not methods <= {"full_payment", "partial_payment", "installments"}:
+        raise DataError("unknown exact payment preference token")
+    priorities = profile["financial_priorities"]
+    return PlanningPreferences(
+        methods, _optional_count(profile["max_installment_months"]),
+        _tokens(profile["expense_categories_to_protect"]),
+        _tokens(profile["expense_categories_user_is_willing_to_reduce"]),
+        _tokens(profile["expense_categories_user_is_willing_to_stop"]),
+        tuple(priorities.split("|")) if priorities and priorities != "none" else (),
+    )
+
+
 class Dataset:
-    """Integration-owned raw table/index container, not a core financial model."""
+    """Integration-owned table/index container; core alone owns financial records."""
 
     @classmethod
     def load(cls, root: Path):
@@ -161,6 +310,8 @@ class Dataset:
             for name in CONTEXT_FILES
         })
         self.source_hashes = MappingProxyType(dict(hashes))
+        self._ordinals = {name: {id(row): i for i, row in enumerate(rows, 1)}
+                          for name, rows in self.tables.items()}
         self.profiles = _unique(self.tables["financial_profiles.csv"], "user_id", "profiles")
         self.events = _unique(self.tables["financial_events.csv"], "event_id", "events")
         self.options = _unique(self.tables["request_payment_options.csv"], "payment_option_id", "options")
@@ -203,12 +354,106 @@ class Dataset:
         self._message_requests = _group(self.tables["messages.csv"], "request_id")
         self._image_requests = _group(self.tables["images.csv"], "request_id")
 
+    def source_location(self, table, row):
+        """Host-only CSV locator; csv_sha256 is NOT an image/message leaf hash."""
+        if table not in self._ordinals or id(row) not in self._ordinals[table]:
+            raise DataError("locator requires an original indexed participant row")
+        return MappingProxyType({"relative_path": table, "row_number": self._ordinals[table][id(row)],
+                                 "csv_sha256": self.source_hashes[table]})
+
+    def _source(self, table, row, identity):
+        locator = self.source_location(table, row)
+        return SourceRef(kind="csv", source_id=f"csv:{table}:{identity}", relative_path=table,
+                         row_number=locator["row_number"], content_sha256=locator["csv_sha256"])
+
+    def planning_context_for(self, row) -> PlanningContext:
+        """Authoritative planning adapter; monetary admission calls core only."""
+        context = self.context_for(row)
+        request, profile = context["request"], context["profile"]
+        currency = profile["home_currency"]
+        try:
+            typed = RequestInput(
+                request["request_id"], request["user_id"], iso_day(request["request_date"]), request["request_type"],
+                parse_money(request["requested_amount"], currency), iso_day(request["desired_completion_date"]),
+                request["allows_partial_payment"] == "true", request["request_text"],
+            )
+            options = []
+            for option in sorted(context["options"], key=lambda o: o["payment_option_id"]):
+                count = _optional_count(option["number_of_payments"])
+                if count is None or option["payment_method"] not in ("full_payment", "installments"):
+                    raise DataError("invalid supplied option count/method")
+                options.append(SuppliedOption(
+                    option["payment_option_id"], option["request_id"], option["payment_method"],
+                    parse_money(option["payment_amount"], currency), count, iso_day(option["first_payment_date"]),
+                    _optional_count(option["payment_frequency_days"]), parse_money(option["financing_fee"], currency),
+                    parse_money(option["total_payable_amount"], currency),
+                ))
+            # Schedule arithmetic, fees, deadline and acceptance are planner checks,
+            # not permission to silently drop an inconvenient supplied option here.
+            return PlanningContext(typed, _preferences(profile), tuple(options))
+        except ValueError as exc:
+            if isinstance(exc, DataError):
+                raise
+            raise DataError("invalid planning scalar in participant context") from exc
+
+    def financial_input_for(self, row, *, evidence_sources=()) -> FinancialInput:
+        """Narrow core view: no deadline, offers, request text or payment preferences.
+
+        Only category protection/adjustability affects this profile. In particular,
+        invalid payment preferences cannot alter/erase no-change capacity inputs.
+        Unknown event amounts/dates remain None; no amount or hold is invented.
+        Extraction supplies host-built message/image SourceRefs after selection.
+        """
+        request = project_request(row)
+        profile = self.profiles.get(request["user_id"])
+        if profile is None:
+            raise DataError("request has no profile")
+        currency = profile["home_currency"]
+        evidence_sources = tuple(evidence_sources)
+        sources = [self._source("financial_profiles.csv", profile, profile["user_id"])]
+        try:
+            financial_profile = FinancialProfile(
+                profile["user_id"], currency, parse_money(profile["current_available_balance"], currency),
+                parse_money(profile["minimum_balance_to_keep"], currency),
+                _tokens(profile["expense_categories_to_protect"]),
+                _tokens(profile["expense_categories_user_is_willing_to_reduce"]),
+                _tokens(profile["expense_categories_user_is_willing_to_stop"]),
+            )
+            events = []
+            for event in self.events_by_user.get(request["user_id"], ()):
+                source = self._source("financial_events.csv", event, event["event_id"])
+                sources.append(source)
+                events.append(EventRecord(
+                    event["event_id"], event["user_id"], event["event_type"], event["description"], event["category"],
+                    event["direction"], parse_optional_money(event["amount"], event["currency"]), event["currency"],
+                    iso_day(event["event_date"]), iso_day(event["settlement_date"]) if event["settlement_date"] else None,
+                    event["status"], source, event["linked_event_id"] or None, event["flexibility"],
+                    parse_optional_money(event["minimum_allowed_amount"], event["currency"]),
+                ))
+            rates = []
+            for rate in self.tables["exchange_rates.csv"]:
+                key = f"{rate['rate_date']}:{rate['from_currency']}:{rate['to_currency']}"
+                source = self._source("exchange_rates.csv", rate, key)
+                sources.append(source)
+                rates.append(FxRate(iso_day(rate["rate_date"]), rate["from_currency"], rate["to_currency"],
+                                    Decimal(rate["rate"]), source))
+            if any(not isinstance(source, SourceRef) for source in evidence_sources):
+                raise DataError("evidence sources must be the core's host-owned SourceRefs")
+            return FinancialInput(
+                request["request_id"], request["user_id"], iso_day(request["request_date"]),
+                parse_money(request["requested_amount"], currency), financial_profile,
+                tuple(events), tuple(rates), tuple(sources) + tuple(evidence_sources),
+            )
+        except (ValueError, InvalidOperation) as exc:
+            if isinstance(exc, DataError):
+                raise
+            raise DataError("invalid financial scalar/state in participant context") from exc
+
     def context_for(self, row):
         """Raw input-only envelope; evidence owner selects from source candidates.
 
-        Core's eventual committed adapter constructs FinancialInput using its own
-        Money/types. No snapshot arithmetic, source conflict decision or schema
-        claiming to be FinancialInput is invented by this loader.
+        The typed adapters above construct actual core records and the one owned
+        planning envelope. This raw view never performs cash-state/FX arithmetic.
         """
         request = project_request(row)
         user, request_id = request["user_id"], request["request_id"]
@@ -220,11 +465,14 @@ class Dataset:
         for index in (self._message_requests, self._image_requests):
             if any(source["user_id"] != user for source in index.get(request_id, ())):
                 raise DataError("request evidence crosses user boundary")
+        messages = self.messages_by_user.get(user, ())
+        images = self.images_by_user.get(user, ())
+        locations = {f"message:{row['message_id']}": self.source_location("messages.csv", row) for row in messages}
+        locations.update({f"image:{row['image_id']}": self.source_location("images.csv", row) for row in images})
         return MappingProxyType({
             "request": request, "profile": self.profiles[user],
             "events": self.events_by_user.get(user, ()), "options": options,
             "fx_rates": self.tables["exchange_rates.csv"],
-            "message_candidates": self.messages_by_user.get(user, ()),
-            "image_candidates": self.images_by_user.get(user, ()),
-            "source_hashes": self.source_hashes,
+            "message_candidates": messages, "image_candidates": images,
+            "source_locations": MappingProxyType(locations), "source_hashes": self.source_hashes,
         })
