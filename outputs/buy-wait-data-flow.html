@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Buy or Wait — participant data and purchase flow</title>
+<style>
+:root{--ink:#132238;--muted:#52627a;--paper:#f5f7fb;--line:#d7deea;--blue:#eaf2ff;--amber:#fff3d6;--purple:#f2eafe;--green:#e3f7ed;--teal:#087f8c}
+*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.55 Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Arial,sans-serif}header{padding:54px max(24px,calc((100vw - 1240px)/2));background:#123a52;color:white}header p{max-width:850px;margin:.7rem 0 0;color:#d8e8ef;font-size:1.08rem}.eyebrow{font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#91d6dc}.wrap{max-width:1300px;margin:auto;padding:34px 24px 70px}.diagram{background:white;border:1px solid var(--line);border-radius:18px;padding:12px;box-shadow:0 8px 28px #15223516;overflow:auto}.diagram svg{width:100%;height:auto;min-width:980px;display:block}.notice{margin:24px 0;padding:18px 22px;background:#fff6e8;border-left:5px solid #db8a22;border-radius:8px}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px;margin-top:28px}.card{background:white;border:1px solid var(--line);border-radius:14px;padding:22px}.card h2,.card h3{margin-top:0}.wide{grid-column:1/-1}.key{display:grid;grid-template-columns:220px 1fr;gap:8px 18px;margin:0}.key dt{font-weight:750}.key dd{margin:0;color:var(--muted)}code{font-family:"SFMono-Regular",Consolas,monospace;background:#edf1f6;padding:.1em .35em;border-radius:4px;font-size:.92em}.trace{width:100%;border-collapse:collapse}.trace th,.trace td{text-align:left;vertical-align:top;padding:10px;border-bottom:1px solid var(--line)}.trace th{width:29%;color:#33455d}a{color:#086b78;text-decoration-thickness:1px;text-underline-offset:2px}.source-list li{margin:.55rem 0}.badge{display:inline-block;padding:3px 9px;border-radius:999px;font-size:.82rem;font-weight:750;background:var(--purple)}footer{margin-top:30px;color:var(--muted);font-size:.9rem}@media(max-width:780px){.grid{grid-template-columns:1fr}.wide{grid-column:auto}.key{grid-template-columns:1fr}.diagram{border-radius:0;margin-left:-24px;margin-right:-24px}}
+@media print{header{padding:22px;background:white;color:var(--ink)}header p{color:var(--muted)}.wrap{max-width:none;padding:0}.diagram{box-shadow:none;border:0}.grid{break-before:page}.card{break-inside:avoid}}
+</style>
+</head>
+<body>
+<header><div class="eyebrow">Offline visual explainer</div><h1>How Buy or Wait data becomes one purchase recommendation</h1><p>Two separated views map every participant CSV to its join keys, then show where proposed AI fact extraction ends and deterministic financial calculation begins. The public <code>request_19</code> trace is explicitly an organizer-provided expected example—not a newly computed prediction.</p></header>
+<main class="wrap">
+<div class="diagram" aria-label="Main Buy or Wait data-flow diagram"><svg xmlns="http://www.w3.org/2000/svg" width="1600" height="2520" viewBox="0 0 1600 2520" role="img" aria-labelledby="title desc">
+  <title id="title">Buy or Wait participant data relationships and purchase decision flow</title>
+  <desc id="desc">Two-view diagram showing exact joins among participant CSV files, followed by a proposed hybrid AI extraction and deterministic financial planning flow, plus a trace of public sample request 19.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#52627a"/></marker>
+    <marker id="arrow-teal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#087f8c"/></marker>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="4" stdDeviation="5" flood-color="#152235" flood-opacity=".12"/></filter>
+    <style>
+      .bg{fill:#f5f7fb}.panel{fill:#fff;stroke:#d7deea;stroke-width:2}.head{fill:#132238}.sub{fill:#52627a}.section{fill:#0c5d6d}.box{fill:#fff;stroke:#b9c5d6;stroke-width:2}.structured{fill:#eaf2ff;stroke:#4776b9}.evidence{fill:#fff3d6;stroke:#bf7f16}.sample{fill:#f2eafe;stroke:#8656b6}.generated{fill:#e3f7ed;stroke:#23845c}.ai{fill:#fff0da;stroke:#c97912}.det{fill:#e6f4f7;stroke:#087f8c}.warning{fill:#fff6e8;stroke:#db8a22}.inactive{fill:#f1f3f6;stroke:#8c98aa;stroke-dasharray:7 6}.tag{fill:#132238}.line{fill:none;stroke:#52627a;stroke-width:2.5;marker-end:url(#arrow)}.tealline{fill:none;stroke:#087f8c;stroke-width:3;marker-end:url(#arrow-teal)}.dash{fill:none;stroke:#8c98aa;stroke-width:2.5;stroke-dasharray:7 6;marker-end:url(#arrow)}text{font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Arial,sans-serif}.t1{font-size:38px;font-weight:750}.t2{font-size:25px;font-weight:750}.t3{font-size:19px;font-weight:700}.body{font-size:16px}.small{font-size:14px}.tiny{font-size:12px}.mono{font-family:"SFMono-Regular",Consolas,monospace}.white{fill:#fff}.muted{fill:#52627a}.danger{fill:#9b3d23}.ok{fill:#176b4d}.bold{font-weight:700}
+    </style>
+  </defs>
+  <rect class="bg" width="1600" height="2520"/>
+  <text id="diagram-title" x="70" y="64" class="head t1">Buy or Wait — from participant files to one safe purchase plan</text>
+  <text x="70" y="96" class="sub body">Architecture explainer • blue = required structured data • amber = optional evidence • purple = public expected example • green = generated output</text>
+
+  <!-- VIEW A -->
+  <rect x="45" y="125" width="1510" height="975" rx="24" class="panel" filter="url(#shadow)"/>
+  <rect x="45" y="125" width="1510" height="70" rx="24" fill="#123a52"/><rect x="45" y="170" width="1510" height="25" fill="#123a52"/>
+  <text x="78" y="170" class="white t2">A. DATA RELATIONSHIPS</text>
+  <text x="1415" y="168" text-anchor="end" class="white body">keys printed on every join</text>
+
+  <!-- top anchors -->
+  <rect x="580" y="225" width="430" height="145" rx="14" class="structured"/>
+  <text x="605" y="255" class="t3 head">requests.csv — EVALUATION ENTRY</text>
+  <text x="605" y="283" class="body mono">PK request_id</text><text x="605" y="306" class="body mono">FK user_id</text>
+  <text x="605" y="331" class="small muted">request_date • requested_amount • deadline</text>
+  <text x="605" y="352" class="small muted">allows_partial_payment • request_text</text>
+
+  <rect x="580" y="397" width="430" height="135" rx="14" class="sample"/>
+  <text x="605" y="427" class="t3 head">sample_requests.csv — PUBLIC EXAMPLES</text>
+  <text x="605" y="455" class="body mono">PK request_id  ·  FK user_id</text>
+  <text x="605" y="480" class="small">same 8 input fields + 7 expected fields</text>
+  <text x="605" y="507" class="small danger bold">Development fixture — never labels for evaluation requests</text>
+
+  <!-- profile and events -->
+  <rect x="85" y="235" width="390" height="145" rx="14" class="structured"/>
+  <text x="110" y="265" class="t3 head">financial_profiles.csv</text>
+  <text x="110" y="293" class="body mono">PK user_id</text>
+  <text x="110" y="318" class="small">home_currency • current_available_balance</text>
+  <text x="110" y="340" class="small">minimum • protected/adjustable categories</text>
+  <text x="110" y="362" class="small">method preferences • installment cap</text>
+
+  <rect x="85" y="460" width="390" height="200" rx="14" class="structured"/>
+  <text x="110" y="490" class="t3 head">financial_events.csv</text>
+  <text x="110" y="518" class="body mono">PK event_id  ·  FK user_id</text>
+  <text x="110" y="543" class="small mono">linked_event_id → event_id (self-link)</text>
+  <text x="110" y="568" class="small">status • direction • amount/currency</text>
+  <text x="110" y="590" class="small">event_date • settlement_date • flexibility</text>
+  <text x="110" y="620" class="small danger bold">Lifecycle context ≠ spendable cash</text>
+  <text x="110" y="642" class="small danger">and ≠ automatic duplicate deletion</text>
+
+  <!-- options / fx -->
+  <rect x="1115" y="235" width="390" height="150" rx="14" class="structured"/>
+  <text x="1140" y="265" class="t3 head">request_payment_options.csv</text>
+  <text x="1140" y="293" class="body mono">PK payment_option_id</text>
+  <text x="1140" y="317" class="body mono">FK request_id</text>
+  <text x="1140" y="342" class="small">full / installment offers, dates, cadence,</text>
+  <text x="1140" y="364" class="small">payment count, fee and total payable</text>
+
+  <rect x="1115" y="470" width="390" height="172" rx="14" class="structured"/>
+  <text x="1140" y="500" class="t3 head">exchange_rates.csv</text>
+  <text x="1140" y="528" class="body mono">KEY rate_date + from_currency</text>
+  <text x="1140" y="551" class="body mono">    + to_currency</text>
+  <text x="1140" y="582" class="small">event settlement_date → rate_date</text>
+  <text x="1140" y="604" class="small">event currency → from_currency</text>
+  <text x="1140" y="626" class="small">profile home_currency → to_currency</text>
+
+  <!-- arrows top -->
+  <path d="M475 295 H565" class="line"/><text x="520" y="282" text-anchor="middle" class="tiny mono">user_id</text>
+  <path d="M475 340 C520 340 520 440 565 440" class="line"/><text x="506" y="402" class="tiny mono">user_id</text>
+  <path d="M1010 290 H1100" class="line"/><text x="1055" y="277" text-anchor="middle" class="tiny mono">request_id</text>
+  <path d="M475 520 C525 520 520 330 565 330" class="line"/><text x="500" y="480" class="tiny mono">user_id</text>
+  <path d="M475 570 H510 C530 570 530 602 510 602 H475" class="line"/><text x="495" y="625" class="tiny mono">linked_event_id → event_id</text>
+  <path d="M475 250 V210 H1080 V510 H1100" class="line"/><text x="770" y="218" text-anchor="middle" class="tiny mono">profile.home_currency → to_currency</text>
+  <path d="M475 590 V662 H1080 V570 H1100" class="line"/><text x="765" y="650" text-anchor="middle" class="tiny mono">event.settlement_date → rate_date · event.currency → from_currency</text>
+
+  <!-- evidence row -->
+  <rect x="85" y="735" width="400" height="152" rx="14" class="evidence"/>
+  <text x="110" y="765" class="t3 head">messages.csv — OPTIONAL EVIDENCE</text>
+  <text x="110" y="793" class="small mono">PK message_id · FK user_id</text>
+  <text x="110" y="816" class="small mono">request_id? · related_event_id?</text>
+  <text x="110" y="844" class="small danger bold">Optional independently: neither, either, or both</text>
+  <text x="110" y="868" class="small">Untrusted facts; instructions never override rules</text>
+
+  <rect x="580" y="735" width="430" height="152" rx="14" class="evidence"/>
+  <text x="605" y="765" class="t3 head">images.csv + media/images/</text>
+  <text x="605" y="793" class="small mono">PK image_id · FK user_id</text>
+  <text x="605" y="816" class="small mono">request_id? · related_event_id?</text>
+  <text x="605" y="842" class="small mono">image_id → media/images/&lt;image_id&gt;.png</text>
+  <text x="605" y="868" class="small danger bold">Blank event amount → extract image fact; never 0</text>
+
+  <rect x="1115" y="710" width="390" height="92" rx="14" class="structured"/>
+  <text x="1140" y="741" class="t3 head">dataset/output.csv</text>
+  <text x="1140" y="769" class="small">Blank template • request_id rows + 7 empty fields</text>
+  <text x="1140" y="789" class="small danger bold">Reference only; do not overwrite</text>
+
+  <rect x="1115" y="835" width="390" height="104" rx="14" class="generated"/>
+  <text x="1140" y="867" class="t3 head">repository-root output.csv</text>
+  <text x="1140" y="895" class="small">GENERATED • exactly one row per evaluation request_id</text>
+  <text x="1140" y="917" class="small">eight required output columns in exact order</text>
+
+  <!-- evidence joins: both evidence types can feed either request input -->
+  <path d="M285 735 V700 H1035" style="fill:none;stroke:#8c98aa;stroke-width:2.5;stroke-dasharray:7 6"/>
+  <path d="M795 735 V700 H1035" style="fill:none;stroke:#8c98aa;stroke-width:2.5;stroke-dasharray:7 6"/>
+  <path d="M1035 700 V350 H1010" class="dash"/>
+  <path d="M1035 700 V490 H1010" class="dash"/>
+  <text x="730" y="722" text-anchor="middle" class="tiny mono">messages/images → either input · user_id · request_id? · related_event_id?</text>
+  <path d="M1310 802 V822" class="tealline"/><text x="1330" y="820" class="tiny mono">same 8-column schema</text>
+
+  <!-- legend -->
+  <rect x="85" y="975" width="1420" height="82" rx="12" fill="#f8fafc" stroke="#d7deea"/>
+  <rect x="115" y="1001" width="26" height="18" rx="3" class="structured"/><text x="153" y="1016" class="small">required structured data</text>
+  <rect x="390" y="1001" width="26" height="18" rx="3" class="evidence"/><text x="428" y="1016" class="small">optional, untrusted evidence</text>
+  <rect x="700" y="1001" width="26" height="18" rx="3" class="sample"/><text x="738" y="1016" class="small">public expected examples</text>
+  <rect x="972" y="1001" width="26" height="18" rx="3" class="generated"/><text x="1010" y="1016" class="small">generated evaluation output</text>
+  <text x="115" y="1043" class="small muted">? = independently optional link • arrows show lookup keys, not cash-flow meaning • only participant-facing files are shown</text>
+
+  <!-- VIEW B -->
+  <rect x="45" y="1130" width="1510" height="785" rx="24" class="panel" filter="url(#shadow)"/>
+  <rect x="45" y="1130" width="1510" height="70" rx="24" fill="#123a52"/><rect x="45" y="1175" width="1510" height="25" fill="#123a52"/>
+  <text x="78" y="1175" class="white t2">B. PURCHASE FLOW</text>
+  <text x="1510" y="1173" text-anchor="end" class="white body">AI proposes typed facts; deterministic code authorizes money</text>
+
+  <!-- lanes -->
+  <text x="78" y="1248" class="t3 section">RAW INPUTS</text>
+  <rect x="75" y="1270" width="255" height="150" rx="14" class="structured"/>
+  <text x="100" y="1303" class="t3">1 · Request anchor</text>
+  <text x="100" y="1332" class="small">evaluation request OR public fixture</text>
+  <text x="100" y="1356" class="small">user profile + event history</text>
+  <text x="100" y="1380" class="small">offers + fixed FX</text>
+  <text x="100" y="1404" class="small">relevant optional evidence only</text>
+
+  <rect x="375" y="1270" width="255" height="150" rx="14" class="structured"/>
+  <text x="400" y="1303" class="t3">2 · Retrieve context</text>
+  <text x="400" y="1332" class="small mono">user_id · request_id</text>
+  <text x="400" y="1356" class="small mono">event_id · related_event_id</text>
+  <text x="400" y="1380" class="small">keep source IDs + provenance</text>
+  <text x="400" y="1404" class="small">do not require both optional links</text>
+  <path d="M330 1345 H362" class="tealline"/>
+
+  <text x="680" y="1248" class="t3" fill="#a05d08">PROPOSED AI EXTRACTION</text>
+  <rect x="675" y="1270" width="285" height="150" rx="14" class="ai"/>
+  <text x="700" y="1303" class="t3">3 · Extract typed facts</text>
+  <text x="700" y="1332" class="small mono">amount · currency · date</text>
+  <text x="700" y="1356" class="small mono">cash_state · fact_type</text>
+  <text x="700" y="1380" class="small">amendment / cancellation / settlement</text>
+  <text x="700" y="1404" class="small danger bold">Never decides affordability</text>
+  <path d="M630 1345 H662" class="tealline"/>
+
+  <text x="1010" y="1248" class="t3 section">DETERMINISTIC FINANCIAL CORE</text>
+  <rect x="1005" y="1270" width="255" height="150" rx="14" class="det"/>
+  <text x="1030" y="1303" class="t3">4 · Normalize facts</text>
+  <text x="1030" y="1332" class="small">resolve conflicts + lifecycle</text>
+  <text x="1030" y="1356" class="small">apply settlement-date directed FX</text>
+  <text x="1030" y="1380" class="small">classify cash state once</text>
+  <text x="1030" y="1404" class="small">infer recurrence only with support</text>
+  <path d="M960 1345 H992" class="tealline"/>
+
+  <rect x="1305" y="1270" width="225" height="150" rx="14" class="det"/>
+  <text x="1330" y="1303" class="t3">5 · 90-day ledger</text>
+  <text x="1330" y="1332" class="small">request-date balance snapshot</text>
+  <text x="1330" y="1356" class="small">required dated cash flows</text>
+  <text x="1330" y="1380" class="small">protected essentials</text>
+  <text x="1330" y="1404" class="small bold">balance ≥ minimum each day</text>
+  <path d="M1260 1345 H1292" class="tealline"/>
+  <path d="M1417 1420 H1540 V1580 H212 V1597" class="tealline"/>
+  <text x="1370" y="1572" text-anchor="end" class="tiny mono">validated ledger → capacity metrics</text>
+
+  <!-- guardrail strip -->
+  <rect x="75" y="1458" width="1455" height="105" rx="14" class="warning"/>
+  <text x="100" y="1490" class="t3 danger">Ledger guardrails against double counting</text>
+  <text x="100" y="1519" class="body">Reserve pending debits once • ignore unsettled credits and unrealized value • do not replay settled history into current balance</text>
+  <text x="100" y="1546" class="body">A confirmed occurrence replaces its matching recurrence forecast • failed/cancelled rows do not become cash flow</text>
+
+  <!-- second flow row -->
+  <rect x="75" y="1610" width="275" height="170" rx="14" class="det"/>
+  <text x="100" y="1643" class="t3">6 · Capacity metrics</text>
+  <text x="100" y="1672" class="small">no-change safe amount today</text>
+  <text x="100" y="1696" class="small">earliest safe one-shot full date</text>
+  <text x="100" y="1725" class="small bold">computed independently of</text>
+  <text x="100" y="1747" class="small bold">optional changes and preferences</text>
+
+  <rect x="405" y="1610" width="300" height="170" rx="14" class="det"/>
+  <text x="430" y="1643" class="t3">7 · Generate allowed plans</text>
+  <text x="430" y="1672" class="small">full • exact two-part partial • wait</text>
+  <text x="430" y="1696" class="small">supplied installments unchanged</text>
+  <text x="430" y="1720" class="small">≤3 permitted future spending changes</text>
+  <text x="430" y="1747" class="small danger bold">Never invent an offer or income</text>
+  <path d="M350 1695 H392" class="tealline"/>
+
+  <rect x="760" y="1590" width="390" height="210" rx="14" class="det"/>
+  <text x="785" y="1623" class="t3">8 · Verify, then rank exactly</text>
+  <text x="785" y="1652" class="small">Checks: every balance • deadline • permissions</text>
+  <text x="785" y="1675" class="small">schedule/sum • installment cap • action validity</text>
+  <text x="785" y="1708" class="small bold">Ranking:</text>
+  <text x="785" y="1731" class="small">1 deadline completion  2 no changes  3 lower total</text>
+  <text x="785" y="1754" class="small">4 earlier start  5 fewer payments  6 lowest option ID</text>
+  <text x="785" y="1780" class="small danger bold">Listed installment ≠ automatically usable</text>
+  <path d="M705 1695 H747" class="tealline"/>
+
+  <rect x="1205" y="1595" width="325" height="245" rx="14" class="generated"/>
+  <text x="1230" y="1628" class="t3">9 · Emit all 8 fields</text>
+  <text x="1230" y="1657" class="small mono">request_id</text><text x="1230" y="1680" class="small mono">amount_safe_to_pay</text>
+  <text x="1230" y="1703" class="small mono">affordability_status</text><text x="1230" y="1726" class="small mono">recommended_payment_method</text>
+  <text x="1230" y="1749" class="small mono">payment_plan</text><text x="1230" y="1772" class="small mono">earliest_date_for_full_payment</text>
+  <text x="1230" y="1795" class="small mono">spending_changes_needed</text>
+  <text x="1230" y="1818" class="small mono">decision_explanation</text>
+  <path d="M1150 1695 H1192" class="tealline"/>
+
+  <text x="75" y="1880" class="small muted">The explanation is rendered from validated facts and the winning ledger—not used as a second decision engine.</text>
+  <text x="1530" y="1880" text-anchor="end" class="small muted">90-day forecast is request-anchored.</text>
+
+  <!-- EXAMPLE -->
+  <rect x="45" y="1945" width="1510" height="525" rx="24" class="panel" filter="url(#shadow)"/>
+  <rect x="45" y="1945" width="1510" height="70" rx="24" fill="#5d3d82"/><rect x="45" y="1990" width="1510" height="25" fill="#5d3d82"/>
+  <text x="78" y="1990" class="white t2">PUBLIC TRACE · request_19 · laptop · user_19</text>
+  <text x="1510" y="1988" text-anchor="end" class="white body">Expected answer supplied in sample_requests.csv — not recomputed here</text>
+
+  <rect x="75" y="2050" width="405" height="278" rx="14" class="structured"/>
+  <text x="100" y="2083" class="t3">RAW PARTICIPANT INPUTS</text>
+  <text x="100" y="2113" class="small"><tspan class="bold">Request:</tspan> INR 39,660 on 2024-09-04</text>
+  <text x="100" y="2137" class="small">deadline 2024-10-04 • partial allowed</text>
+  <text x="100" y="2168" class="small"><tspan class="bold">Profile:</tspan> balance 199,545 • minimum 92,800</text>
+  <text x="100" y="2192" class="small">accepts partial + installments • max 2 months</text>
+  <text x="100" y="2223" class="small"><tspan class="bold">Offers:</tspan> full 39,660; 2 × 20,623.20</text>
+  <text x="100" y="2247" class="small">(fee 1,586.40); 3 × 14,013.20 (late / 3-pay)</text>
+  <text x="100" y="2278" class="small"><tspan class="bold">Evidence:</tspan> image_04 → event_1700, blank amount</text>
+  <text x="100" y="2302" class="small">delivered groceries; visible item bill INR 2,854</text>
+
+  <rect x="525" y="2050" width="455" height="278" rx="14" class="det"/>
+  <text x="550" y="2083" class="t3">HOW THE PROPOSED FLOW USES THEM</text>
+  <text x="550" y="2113" class="small">1 Retrieve user_19 + request_19 + event/image links.</text>
+  <text x="550" y="2138" class="small">2 Extract image amount as a typed grocery fact—not zero.</text>
+  <text x="550" y="2163" class="small">3 No messages and no foreign-currency cash event:</text>
+  <text x="570" y="2186" class="small muted">message and FX branches are inactive for this trace.</text>
+  <text x="550" y="2216" class="small">4 Deterministic checks would test permissions, 90-day</text>
+  <text x="570" y="2239" class="small">balances, deadline, cap, schedules and exact ranking.</text>
+  <text x="550" y="2269" class="small">5 Partial needs no seller option row. If safe, it costs</text>
+  <text x="570" y="2292" class="small">less than the 2-payment offer; the 3-payment offer is late.</text>
+  <text x="550" y="2317" class="small danger bold">No reproduced ledger path or engine result is claimed.</text>
+
+  <rect x="1025" y="2050" width="505" height="278" rx="14" class="sample"/>
+  <text x="1050" y="2083" class="t3">ORGANIZER-PROVIDED EXPECTED OUTPUT</text>
+  <text x="1050" y="2113" class="small mono">request_id                 request_19</text>
+  <text x="1050" y="2136" class="small mono">amount_safe_to_pay         28820</text>
+  <text x="1050" y="2159" class="small mono">affordability_status       affordable_with_plan</text>
+  <text x="1050" y="2182" class="small mono">recommended_payment_method partial_payment</text>
+  <text x="1050" y="2205" class="small mono">payment_plan               2024-09-04:28820 |</text>
+  <text x="1050" y="2228" class="small mono">                           2024-09-15:10840</text>
+  <text x="1050" y="2251" class="small mono">earliest_date_for_full_payment 2024-09-15</text>
+  <text x="1050" y="2274" class="small mono">spending_changes_needed     none</text>
+  <text x="1050" y="2297" class="small mono">decision_explanation       protects INR 92,800 minimum</text>
+  <text x="1050" y="2322" class="small bold">Arithmetic only: 39,660 − 28,820 = 10,840.</text>
+
+  <path d="M480 2189 H512" class="tealline"/><path d="M980 2189 H1012" class="tealline"/>
+  <rect x="75" y="2360" width="1455" height="72" rx="12" fill="#faf7fd" stroke="#d9c8e9"/>
+  <text x="100" y="2389" class="small danger bold">Evidence boundary:</text>
+  <text x="245" y="2389" class="small">the amounts, dates, method and explanation above are supplied public expected fields—not predictions produced by this diagram.</text>
+  <text x="100" y="2415" class="small muted">The diagram demonstrates compliant data use and arithmetic only; it does not train, infer, score, or generate evaluation output.csv.</text>
+
+  <text x="70" y="2500" class="tiny muted">Participant-facing source: problem_statement.md, README.md, dataset CSV schemas, and public sample request_19. Proposed architecture follows outputs/buy-wait-agent.md.</text>
+</svg>
+</div>
+<div class="notice"><strong>Read the boundary first.</strong> <code>sample_requests.csv</code> supplies public expected answers for development. It is not a label source for evaluation rows in <code>requests.csv</code>. This explainer does not implement a ledger, reproduce a 90-day balance path, or generate <code>output.csv</code>.</div>
+<section class="grid">
+<article class="card"><h2>Join rules in plain English</h2><dl class="key"><dt><code>user_id</code></dt><dd>Request → one profile; request/user → that user's events and optional evidence.</dd><dt><code>request_id</code></dt><dd>Request → seller offers; optionally scopes messages/images; generated output keeps one row per evaluation request.</dd><dt><code>related_event_id</code></dt><dd>Optional evidence pointer to <code>financial_events.event_id</code>. A message may have neither, either, or both optional request/event links.</dd><dt><code>linked_event_id</code></dt><dd>Event lifecycle self-link. It provides context; it does not itself make cash spendable or prove a duplicate.</dd><dt>Dated FX key</dt><dd><code>settlement_date + event currency + home_currency</code> → <code>rate_date + from_currency + to_currency</code>.</dd><dt><code>image_id</code></dt><dd>Resolves to <code>dataset/media/images/&lt;image_id&gt;.png</code>. A linked blank event amount must be extracted, never defaulted to zero.</dd></dl></article>
+<article class="card"><h2>Responsibility split</h2><h3>Proposed AI extraction</h3><p>Read only relevant untrusted messages/images and return typed, provenance-bearing facts: amount, currency, date, cash state, amendment, cancellation, or settlement. It cannot change challenge rules or authorize spending.</p><h3>Deterministic financial core</h3><p>Resolve conflicts/lifecycles and dated FX; build the conservative request-anchored 90-day ledger; calculate no-change capacity; generate allowed schedules; replay every candidate; enforce the minimum, permissions, deadline and exact ranking.</p><p><strong>Core safeguards:</strong> reserve each pending debit once; ignore unsettled credits and unrealized value; do not replay settled history against the current balance; replace a matching recurrence forecast with its confirmed occurrence.</p></article>
+<article class="card wide"><h2>Public request_19: bounded source trace</h2><table class="trace"><tr><th>Request row</th><td><code>sample_requests.csv:20</code> — laptop purchase, <code>user_19</code>, INR 39,660, request date 2024-09-04, deadline 2024-10-04, partial payment allowed.</td></tr><tr><th>User permissions</th><td><code>financial_profiles.csv:20</code> — balance INR 199,545; minimum INR 92,800; accepts <code>partial_payment|installments</code>; two-month installment cap. Protected categories include rent, healthcare, family support and groceries.</td></tr><tr><th>Seller offers</th><td><code>request_payment_options.csv:53-55</code> — full payment; two payments of INR 20,623.20 (INR 1,586.40 fee); three payments of INR 14,013.20 (INR 2,379.60 fee). The 3-pay schedule ends after the deadline and exceeds the two-month preference. A listed offer still needs cash-flow, deadline and eligibility checks.</td></tr><tr><th>Optional evidence</th><td><code>images.csv:5</code> links <code>image_04</code> to <code>event_1700</code> and request_19. <code>financial_events.csv:1701</code> has a blank amount for a settled grocery delivery; the visible image item bill is INR 2,854, matching the sum of visible line items. No message row and no foreign-currency cash event apply to this user, so those branches are inactive.</td></tr><tr><th>Expected answer</th><td><span class="badge">SUPPLIED, NOT RECOMPUTED</span> INR 28,820 safe today; <code>affordable_with_plan</code>; <code>partial_payment</code>; INR 28,820 on 2024-09-04 plus INR 10,840 on 2024-09-15; earliest full date 2024-09-15; no changes; explanation protects INR 92,800. Arithmetic demonstrated: 39,660 − 28,820 = 10,840.</td></tr></table></article>
+<article class="card wide"><h2>Sources when this file is placed in <code>outputs/</code></h2><ul class="source-list"><li><a href="../problem_statement.md">problem_statement.md</a>: lines 31–49 (file roles and joins), 82–163 (eight fields and plan semantics), 165–207 (evidence, 90-day safety, ranking and conflicts).</li><li><a href="../README.md">README.md</a>: lines 29–55 (blank template versus generated root output), 92–129 (output and workflow).</li><li><a href="./buy-wait-agent.md">outputs/buy-wait-agent.md</a>: section 4 (recommended hybrid extraction + deterministic planner). This is a proposal, not implemented or benchmarked functionality.</li><li><a href="../dataset/sample_requests.csv">dataset/sample_requests.csv:20</a>, <a href="../dataset/financial_profiles.csv">financial_profiles.csv:20</a>, <a href="../dataset/request_payment_options.csv">request_payment_options.csv:53–55</a>, <a href="../dataset/images.csv">images.csv:5</a>, and <a href="../dataset/financial_events.csv">financial_events.csv:1701</a> support the public trace.</li><li><a href="../dataset/media/images/image_04.png">dataset/media/images/image_04.png</a> is the linked public evidence image.</li></ul><p>Source identity note: the selected project was rechecked directly. Its current commit differs from the earlier research snapshot, but the cited participant rows and contract used in this visual were read from the selected project itself.</p></article>
+</section>
+<footer>Static HTML + inline SVG. No CDN, external JavaScript, web server, model call, training, evaluation prediction, or runtime diagram dependency.</footer>
+</main></body></html>
