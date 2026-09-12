@@ -27,7 +27,7 @@ git clone https://github.com/arbadev/mondanator.git
 cd mondanator
 ```
 
-The target runtime requires **Python 3.10+**; **Python 3.13** is recommended. `requirements.txt` pins the evidence owner's reported tested direct dependencies: Pydantic 2.13.5, HTTPX 0.28.1 and Pillow 12.3.0. CI is configured for Python 3.10/3.13. These replace the earlier dependency-free Python 3.9 setup, which cannot support extraction. A clean dependency installation and composed extraction behavior are **not yet verified here**, and remote CI is not claimed green. See [`docs/integration.md`](docs/integration.md) for ownership and dependency limits. This checkpoint is **not a complete financial agent**.
+The target runtime requires **Python 3.10+**; **Python 3.13** is recommended. `requirements.txt` pins the evidence owner's reported tested direct dependencies: Pydantic 2.13.5, HTTPX 0.28.1 and Pillow 12.3.0. CI is configured for Python 3.10/3.13. These replace the earlier dependency-free Python 3.9 setup, which cannot support extraction. A clean local Python 3.13.15 environment installed those pins, passed `pip check`, and passed **198 offline tests**, including the real CSV→evidence→core seam with mocked HTTP. Python 3.10, live extraction, complete financial decisions and remote CI remain unverified; known imported-core defects still block final certification. See [`docs/integration.md`](docs/integration.md) for ownership and dependency limits. This checkpoint is **not a complete financial agent**.
 
 Your solution must:
 
