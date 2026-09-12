@@ -52,7 +52,7 @@ The evidence cache currently requires **POSIX/fcntl (Linux/macOS)**. Native Wind
 
 The evidence module supplies source selection/image checks/private schema, the sole FactBatch adapter and cache/client/UsageEvent boundaries consumed by the runner and durable accounting below. Live extraction/model quality, actual final-run accounting and final output remain unverified and unauthorized at this checkpoint.
 
-Neither inspection command generates predictions, performs extraction, reads credentials or certifies financial safety. The sample inspector checks all 25 fixtures with expected fields separated. There is no implicit or live prediction mode; `python code/main.py` without an explicit mode exits nonzero. Final-run execution, accounting artifacts, package preparation and clean application reproduction still require corrected dependencies and the required correctness/freeze/run authority.
+Neither inspection command generates predictions, performs extraction, reads credentials or certifies financial safety. The sample inspector checks all 25 fixtures with expected fields separated. There is no implicit or live prediction mode; `code/main.py` without an explicit mode exits nonzero. Final-run execution, accounting artifacts, package preparation and clean application reproduction still require corrected dependencies and the required correctness/freeze/run authority.
 
 The **cache-only development CLI** below is a tested capability, not authority to generate evaluation predictions. Use only an authorized development fixture and validated evidence cache at this checkpoint:
 
@@ -75,7 +75,7 @@ Exit0 means the preflight completed, **not that purchases are affordable**. Insp
 For an **already-produced public-development** prediction CSV (not evaluation labels), retain a new, immutable run directory:
 
 ```bash
-python code/evaluation/main.py --dataset dataset --predictions public-predictions.csv --run-id dev-baseline
+.venv/bin/python code/evaluation/main.py --dataset dataset --predictions public-predictions.csv --run-id dev-baseline
 ```
 
 Use a new ID for every iteration. No existing baseline is overwritten, and missing financial/grounding audits remain `not_checked`. These comparisons are development evidence, not independent generalization. No complete-model baseline has been measured at this checkpoint.
