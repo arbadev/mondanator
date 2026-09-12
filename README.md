@@ -54,12 +54,12 @@ The offline tests use synthetic/public fixtures and a mocked HTTP transport; the
 
 The offline evidence module (`code/buy_wait/evidence`) delivers source selection, image checks, the private extraction schema, the single FactBatch adapter, a cache-only replay path and UsageEvent accounting. Live OpenRouter inference, measured model quality, final-run usage reporting and final output remain unverified and unauthorized at this checkpoint.
 
-Neither inspection command generates predictions, performs extraction, reads credentials or certifies financial safety. The sample inspector checks all 25 fixtures with expected fields separated. The final inference CLI, usage aggregation, package construction and clean reproduction will be connected only after committed financial/evidence/planning dependencies and the required correctness/freeze/run authority; `python3 code/main.py` without `--check-inputs` deliberately exits nonzero instead of inventing output.
+Neither inspection command generates predictions, performs extraction, reads credentials or certifies financial safety. The sample inspector checks all 25 fixtures with expected fields separated. The final inference CLI, usage aggregation, package construction and clean reproduction will be connected only after committed financial/evidence/planning dependencies and the required correctness/freeze/run authority; `code/main.py` without `--check-inputs` deliberately exits nonzero instead of inventing output.
 
 For an **already-produced public-development** prediction CSV (not evaluation labels), retain a new, immutable run directory:
 
 ```bash
-python3 code/evaluation/main.py --dataset dataset --predictions public-predictions.csv --run-id dev-baseline
+.venv/bin/python code/evaluation/main.py --dataset dataset --predictions public-predictions.csv --run-id dev-baseline
 ```
 
 Use a new ID for every iteration. No existing baseline is overwritten, and missing financial/grounding audits remain `not_checked`. These comparisons are development evidence, not independent generalization. No complete-model baseline has been measured at this checkpoint.
