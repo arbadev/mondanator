@@ -29,7 +29,7 @@ class ImageTests(unittest.TestCase):
     def test_exact_image_id_resolution_and_hash_change(self):
         first = resolve_image(self.root, "image_1")
         self.assertEqual((first.width, first.height), (8, 8))
-        self.assertEqual(first.relative_path, "dataset/media/images/image_1.png")
+        self.assertEqual(first.relative_path, "media/images/image_1.png")
         (self.images / "image_1.png").write_bytes(png("red"))
         self.assertNotEqual(first.sha256, resolve_image(self.root, "image_1").sha256)
 
