@@ -133,6 +133,20 @@ def normalize_events(data: FinancialInput, batch: FactBatch):
             fact = replace(fact, target=EventTarget(event_id))
         usable.append(fact)
 
+    # Supersession IDs are a host-resolved relation, not arbitrary priority tokens.
+    for fact in usable:
+        visiting = set()
+        def visit(fid):
+            if fid in visiting:
+                raise ValueError("cyclic fact supersession")
+            visiting.add(fid)
+            for previous in facts[fid].supersedes_fact_ids:
+                if previous not in facts or facts[previous].target != facts[fid].target or facts[previous].scope != facts[fid].scope:
+                    raise ValueError("supersession must identify an existing same-target/scope fact")
+                visit(previous)
+            visiting.remove(fid)
+        visit(fact.fact_id)
+
     # Validate lifecycle links without treating entire linked components as one cash leg.
     for event in events.values():
         seen = {event.event_id}
@@ -168,22 +182,36 @@ def normalize_events(data: FinancialInput, batch: FactBatch):
         event = replace(event, amount=amount, status=status)
         approval = "unknown"
         obligation = "unknown"
-        state_observations = [f.claim for f in states if isinstance(f.claim, StateClaim)]
+        metadata_facts = [f for f in states if isinstance(f.claim, StateClaim)]
+        explicit_metadata = [f for f in metadata_facts if f.action in EXPLICIT_ACTIONS or f.supersedes_fact_ids]
+        metadata_facts = explicit_metadata or metadata_facts
+        metadata_times = [_actor_time(f, sources) for f in metadata_facts]
+        if (metadata_times and len({a for a, _ in metadata_times}) == 1
+                and all(a is not None and t is not None for a, t in metadata_times)):
+            latest_time = max(t for _, t in metadata_times)
+            metadata_facts = [f for f, (_, t) in zip(metadata_facts, metadata_times) if t == latest_time]
+        state_observations = [f.claim for f in metadata_facts]
         # Outstanding/disputed obligation survives a failed cash attempt (I011 C3).
         if any(c.obligation_state in ("outstanding", "disputed") for c in state_observations):
             obligation = "outstanding" if any(c.obligation_state == "outstanding" for c in state_observations) else "disputed"
         elif any(c.obligation_state == "closed" for c in state_observations):
             obligation = "closed"
-        if any(c.approval_state == "confirmed" for c in state_observations):
+        approvals = {c.approval_state for c in state_observations}
+        if "conditional" in approvals:
+            approval = "conditional"
+        elif "unconfirmed" in approvals:
+            approval = "unconfirmed"
+        elif "confirmed" in approvals:
             approval = "confirmed"
-        elif state_observations:
-            approval = state_observations[-1].approval_state
         role = "regular_salary" if event.event_type == "income" and event.category == "salary" else "not_applicable"
         lower = event.description.lower()
         if any(token in lower for token in ("bonus", "commission", "prize", "lottery", "one-off", "one time")):
             role = "one_off"
         elif "prorat" in lower:
             role = "prorated"
+        new_cash = [f.claim for f in active if isinstance(f.claim, NewCashClaim)]
+        if new_cash:
+            role = new_cash[-1].income_kind
         roles = [f for f in active if isinstance(f.claim, IncomeRoleClaim)]
         if roles:
             role = sorted(roles, key=lambda f: (f.action in EXPLICIT_ACTIONS, f.fact_id))[-1].claim.value
@@ -204,7 +232,7 @@ def normalize_events(data: FinancialInput, batch: FactBatch):
             disposition, reason = "unresolved", "FUTURE_SETTLED_CONFLICT"
             issues.append(issue(reason, "future-dated settled cash is not request-time cash", target=(event.event_id,),
                                 severity="blocking" if event.direction == "debit" else "warning", impact=event.direction))
-        elif event.direction == "credit" and (status == "pending" or role != "regular_salary"):
+        elif event.direction == "credit" and (status == "pending" or role != "regular_salary" or approval in ("conditional", "unconfirmed")):
             disposition, reason = "excluded", "UNSETTLED_CREDIT_EXCLUDED"
         elif event.direction == "debit" and status == "pending":
             disposition, reason = "reserve", "PENDING_DEBIT_RESERVED_ONCE"
