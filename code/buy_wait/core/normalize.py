@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import timezone
+from datetime import timedelta, timezone
 from typing import Tuple
 
 from buy_wait.contracts import (
@@ -175,12 +175,24 @@ def normalize_events(data: FinancialInput, batch: FactBatch):
         if any(f.claim.value.currency != event.currency for f in monetary):
             issues.append(issue("FACT_CURRENCY_MISMATCH", "amount fact currency differs from event", target=(event.event_id,)))
             monetary = []
-        amount, amount_ids = _choose(event, monetary, "amount", sources)
+        if settlement is None:
+            cuts = sorted({data.request_date,
+                           *(f.effective_on for f in monetary if f.effective_on and f.effective_on > data.request_date),
+                           *(f.valid_until + timedelta(days=1) for f in monetary if f.valid_until)})
+            regions = [_choose(event, [f for f in monetary if applicable(f, day)], "amount", sources) for day in cuts]
+            if any(value is None for value, _ in regions):
+                amount, amount_ids = None, ()
+            else:
+                bound = (max if event.direction == "debit" else min)(value.minor for value, _ in regions)
+                amount = next(value for value, _ in regions if value.minor == bound)
+                amount_ids = tuple(sorted({i for value, ids in regions if value.minor == bound for i in ids}))
+        else:
+            amount, amount_ids = _choose(event, monetary, "amount", sources)
         if event.direction == "debit" and any(f.effective_on or f.valid_until for f in monetary):
-            if settlement is None:
+            if settlement is None and amount is not None:
                 issues.append(issue("UNKNOWN_DATE_TIER_BOUND", "payment date unknown; the highest still-applicable bill tier is reserved as a bound",
                                     target=(event.event_id,), severity="warning", impact="debit"))
-            else:
+            elif settlement is not None:
                 issues.append(issue("SETTLEMENT_APPLICABILITY_PROXY", "inclusive bill tiers resolved using supported settlement date; no earlier paid-date evidence",
                                     target=(event.event_id,), severity="info", impact="none"))
         states = [f for f in active if isinstance(f.claim, (StateClaim, CancelClaim))]
