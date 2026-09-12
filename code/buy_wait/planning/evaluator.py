@@ -31,7 +31,7 @@ def supplied_option_rejections(option, envelope, core) -> tuple[dict, ...]:
         issues.append(_issue("METHOD_NOT_ACCEPTED", "eligibility", method=option.payment_method))
     try:
         last = option_completion_date(option)
-        _money(option.payment_amount, "payment_amount", allow_zero=False)
+        _money(option.payment_amount, "payment_amount")
         _money(option.financing_fee, "financing_fee")
         _money(option.total_payable_amount, "total_payable_amount")
         if any(amount.currency != request.requested_amount.currency for amount in (
@@ -137,7 +137,7 @@ def static_rejections(plan: Plan, envelope, core) -> tuple[dict, ...]:
             reject("MISSES_DEADLINE", "schedule", payment_index=index, date=payment.date,
                    deadline=request.desired_completion_date)
         try:
-            _money(payment.amount, "payment.amount", allow_zero=False)
+            _money(payment.amount, "payment.amount")
         except ValueError as exc:
             reject("INVALID_PAYMENT_AMOUNT", "schedule", payment_index=index, detail=str(exc))
             valid_payments = False
@@ -292,9 +292,18 @@ def evaluate_candidate(plan: Plan, envelope, core) -> dict:
     first_breach = None
     minimum_minor = None
     if safety is not None:
-        for code in safety.reason_codes:
-            issues.append(_issue(code, "replay", severity="unverifiable"
-                                 if safety.proof_status == "unresolved" else "reject"))
+        if safety.reason_codes[:1] == ("INVALID_FINANCIAL_PLAN",):
+            issues.append(_issue("INVALID_FINANCIAL_PLAN", "replay", severity="unverifiable",
+                                 detail="; ".join(safety.reason_codes[1:])))
+        else:
+            for code in safety.reason_codes:
+                issues.append(_issue(code, "replay", severity="unverifiable"
+                                     if safety.proof_status == "unresolved" else "reject"))
+        if (plan.method == "partial_payment" and not plan.changes and not safety.safe
+                and safety.proof_status in _PROVED):
+            issues.append(_issue("PARTIAL_CAPACITY_INCOHERENCE", "capacity", severity="unverifiable",
+                                 safe_today=core.capacity.amount_safe_to_pay,
+                                 full_date=core.capacity.earliest_date_for_full_payment))
         for issue in core.issues:
             issues.append(_issue(issue.code, "evidence", detail=issue.detail,
                                  source_ids=issue.source_ids, target_ids=issue.target_ids,
@@ -331,7 +340,9 @@ def evaluate_candidate(plan: Plan, envelope, core) -> dict:
         "actual_total_paid": total, "first_payment_date": plan.payments[0].date if dates_valid else None,
         "completion_date": completion, "payment_count": len(plan.payments),
         "has_spending_changes": bool(plan.changes),
-        "completes_by_deadline": completion is not None and completion <= envelope.request.desired_completion_date,
+        "completes_by_deadline": (completion is not None
+                                  and type(envelope.request.desired_completion_date) is date
+                                  and completion <= envelope.request.desired_completion_date),
         "minimum_available": safety.minimum_available if safety is not None else None,
         "minimum_available_minor": minimum_minor, "first_breach": first_breach,
         "issues": tuple(issues), "safety": safety, "capacity": core.capacity,

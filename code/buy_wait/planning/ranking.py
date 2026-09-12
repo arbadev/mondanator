@@ -102,6 +102,9 @@ def search_rejections(search, validations: tuple) -> tuple[dict, ...]:
             issues.append({"code": "SEARCH_CONTEXT_MISMATCH", "candidate_id": plan.candidate_id})
         if outcome == "unverifiable" or outcome == "valid" and not _rankable(result):
             issues.append({"code": "UNVERIFIED_CANDIDATE", "candidate_id": plan.candidate_id})
+    coverage_defects = (search.get("coverage_defects", ()) if isinstance(search, Mapping)
+                        else getattr(search, "coverage_defects", ()))
+    issues.extend(coverage_defects)
     if changed_phase == "skipped_by_P2":
         witnesses = set(_get(search, "pruning_witness_plan_ids"))
         if not any(_rankable(r) and not _get(r, "has_spending_changes")
@@ -130,13 +133,60 @@ def serialization_representative(finalists: tuple) -> tuple[object | None, str]:
     return min(finalists, key=canonical), "serialization_only"
 
 
+def build_search_coverage(batches, validations, *, envelope, core,
+                          pruning_witness_plan_ids=()) -> dict:
+    """Bind complete phases, exact evaluated Plans and genuine P2 witnesses.
+
+    Integration calls this after evaluating all emitted candidates. A missing
+    changed phase is permitted only with named, validated no-change witnesses;
+    merely generating a no-change plan never licenses pruning.
+    """
+    batches, validations = tuple(batches), tuple(validations)
+    no_change = tuple(b for b in batches if b["phase"] == "no_changes")
+    changed = tuple(b for b in batches if b["phase"] == "with_changes")
+    defects = []
+    if len(no_change) != 1 or len(changed) > 1 or len(batches) != len(no_change) + len(changed):
+        defects.append({"code": "GENERATION_PHASE_SET_INVALID"})
+    plans = tuple(p for b in batches for p in b["plans"])
+    by_id = {p.candidate_id: p for p in plans}
+    if len(by_id) != len(plans):
+        defects.append({"code": "DUPLICATE_GENERATED_PLAN"})
+    if (set(by_id) != {_get(v, "plan").candidate_id for v in validations}
+            or any(by_id.get(_get(v, "plan").candidate_id) != _get(v, "plan") for v in validations)):
+        defects.append({"code": "GENERATED_VALIDATED_PLAN_MISMATCH"})
+    witnesses = tuple(pruning_witness_plan_ids)
+    no_change_ids = {p.candidate_id for b in no_change for p in b["plans"]}
+    if any(witness not in no_change_ids for witness in witnesses):
+        defects.append({"code": "P2_WITNESS_NOT_IN_NO_CHANGE_PHASE"})
+    if changed:
+        changed_phase = "complete" if changed[0]["coverage"] in {
+            "exhaustive", "optimum_preserving_representatives"} else "incomplete"
+    else:
+        changed_phase = "skipped_by_P2" if witnesses else "incomplete"
+    return {
+        "request_id": core.request_id, "core_hash": core.context_hash,
+        "envelope_hash": envelope.context_hash,
+        "no_change_phase_complete": len(no_change) == 1 and no_change[0]["coverage"] == "exhaustive",
+        "changed_phase": changed_phase, "generated_count": len(plans), "evaluated_count": len(validations),
+        "unresolved_exclusions": tuple(e for b in batches for e in b["exclusions"]
+                                       if e.get("severity") == "unverifiable" and e.get("blocks_completeness", True)),
+        "pruning_witness_plan_ids": witnesses, "coverage_defects": tuple(defects),
+    }
+
+
 def rank_validated(validations, *, search, option_id_order="natural_suffix") -> dict:
     """Canonical ranking boundary: no winner is certified on incomplete evidence."""
     if option_id_order != "natural_suffix":
         raise ValueError("only canonical I007 natural_suffix ordering is supported")
     validations = tuple(validations)
     issues = search_rejections(search, validations)
-    best = best_ranked_candidates(validations)
+    try:
+        best = best_ranked_candidates(validations)
+        rank_keys = tuple((_get(r, "plan").candidate_id, published_rank_key(r))
+                          for r in validations if _rankable(r))
+    except ValueError as exc:
+        issues += ({"code": "RANKING_INPUT_UNRESOLVED", "detail": str(exc)},)
+        best, rank_keys = (), ()
     if issues:
         winner, resolution = None, "incomplete_evidence_or_search"
         tie = None
@@ -144,9 +194,7 @@ def rank_validated(validations, *, search, option_id_order="natural_suffix") -> 
         winner, tie = serialization_representative(best)
         resolution = "no_valid_plan" if winner is None else "selected"
     return {"winner": winner, "best_set": best, "resolution": resolution,
-            "tie_resolution": tie, "issues": issues,
-            "rank_keys": tuple((_get(r, "plan").candidate_id, published_rank_key(r))
-                               for r in validations if _rankable(r))}
+            "tie_resolution": tie, "issues": issues, "rank_keys": rank_keys}
 
 
 def recommendation_status(ranking: dict, core) -> dict:

@@ -1,8 +1,7 @@
-"""Pure schedule constructors for the canonical financial contracts.
+"""Exact schedules and bounded candidate families using core-owned records.
 
-This first planning slice does not construct a second ledger or public domain
-record. Money and Payment are supplied by the core-owned contracts module.
-Candidate/search-result assembly awaits that module's committed handoff.
+This module never simulates cash or determines savings. Emitted canonical Plans
+must pass static checks and the sole core replay before ranking can certify them.
 """
 from __future__ import annotations
 
@@ -283,7 +282,10 @@ def generate_candidates(envelope, core, *, phase="no_changes", max_candidates=No
             continue
         reasons = supplied_option_rejections(option, envelope, core)
         if reasons:
-            exclusions.extend(reasons)
+            # An independently forbidden offer cannot become eligible by fixing
+            # unknown metadata. Retain the ambiguity, but it cannot affect optimum.
+            certainly_ineligible = any(i["severity"] == "reject" for i in reasons)
+            exclusions.extend({**i, "blocks_completeness": not certainly_ineligible} for i in reasons)
             continue
         if option.payment_method == "full_payment" and option.first_payment_date != core.request_date:
             exclusions.append({"code": "FULL_OPTION_NOT_TODAY", "severity": "reject", "option_id": key})
@@ -344,7 +346,8 @@ def generate_candidates(envelope, core, *, phase="no_changes", max_candidates=No
                 if not add(method, payments, changes, origin="rule_full" if method == "full_payment" else "rule_wait",
                            family=family["family_id"]):
                     break
-    incomplete = not complete or any(e["severity"] == "unverifiable" for e in exclusions)
+    incomplete = not complete or any(e["severity"] == "unverifiable" and e.get("blocks_completeness", True)
+                                     for e in exclusions)
     return {"phase": phase, "plans": tuple(plans), "families": families, "exclusions": tuple(exclusions),
             "coverage": "incomplete" if incomplete else "exhaustive" if phase == "no_changes"
             else "optimum_preserving_representatives"}
