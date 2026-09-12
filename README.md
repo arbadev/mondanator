@@ -29,6 +29,8 @@ cd mondanator
 
 The target runtime requires **Python 3.10+**; **Python 3.13** is recommended. `requirements.txt` pins the evidence owner's reported tested direct dependencies: Pydantic 2.13.5, HTTPX 0.28.1 and Pillow 12.3.0. CI is configured for Python 3.10/3.13. These replace the earlier dependency-free Python 3.9 setup, which cannot support extraction. A clean local Python 3.13.15 environment installed those pins, passed `pip check`, and passed **344 offline tests**, including corrected core regressions, real CSV→evidence→core seams with mocked HTTP, planning replay/coverage, runner/accounting/CLI tests and seventeen audit/preflight/reproduction tests. Python 3.10, live extraction, complete application decisions and remote CI remain unverified. The core's published PR has zero registered CI checks; local tests are not final certification. Open evidence-adapter and planning review findings also block final release until corrected boundaries are routed; see the detailed limits in `docs/integration.md`. Runner APIs, durable canonical usage aggregation and a cache-only development prediction CLI now have synthetic behavior coverage. Independent consumer recomposition, source identity and actual-plan replay audits now exist; semantic grounding remains unchecked. A fresh-cache preflight executed all25 public inputs, with21 unresolved and no prediction CSV or accuracy claim. The full-evidence baseline, final-run mode and final application results remain incomplete. See [`docs/integration.md`](docs/integration.md) for ownership and dependency limits. This checkpoint is **not a complete financial agent**.
 
+**Dependency reconciliation in progress (inbox023–024):** the344-test/preflight receipt above belongs to protected checkpoint3f99818448630eceee765528bfa39a752e35f54b. The authorized evidence chain must finish through c17e959deb9ea46397993f276066dacf0f8e581a before the composed runtime is executed or retested; intermediate220338ee/606628ba still have the known cross-axis defect. CI retains3.10 as an unverified compatibility target and3.13 as the observed baseline, not two claimed passing jobs.
+
 Your solution must:
 
 - Read the input files from `dataset/`
@@ -39,14 +41,16 @@ Create an isolated environment, then run the available **read-only** checks and 
 
 ```bash
 python3.13 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
 . .venv/bin/activate
-python -m pip install -r requirements.txt
-python code/main.py --dataset dataset --check-inputs
-python code/evaluation/main.py --dataset dataset
-PYTHONPATH=code PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s code/tests -p 'test_*.py' -v
+.venv/bin/python code/main.py --dataset dataset --check-inputs
+.venv/bin/python code/evaluation/main.py --dataset dataset
+PYTHONPATH=code PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m unittest discover -s code/tests -p 'test_*.py' -v
 ```
 
-The evidence cache currently requires **POSIX/fcntl (Linux/macOS)**. Native Windows cache support is not implemented or verified; use a Linux/WSL environment with the POSIX commands above for the combined application. Dependency installation may access the package index; the tests themselves must remain offline. Pins are direct dependencies, not a complete transitive lock.
+The evidence cache currently requires **POSIX/fcntl (Linux/macOS)**. Native Windows cache support is not implemented or verified; use a Linux/WSL environment with the POSIX commands above for the combined application. Dependency installation may access the package index; the tests themselves use synthetic/public fixtures and mocked HTTP, make no live model calls and read no API key or `.env`. Pins are direct dependencies, not a complete transitive lock.
+
+The evidence module supplies source selection/image checks/private schema, the sole FactBatch adapter and cache/client/UsageEvent boundaries consumed by the runner and durable accounting below. Live extraction/model quality, actual final-run accounting and final output remain unverified and unauthorized at this checkpoint.
 
 Neither inspection command generates predictions, performs extraction, reads credentials or certifies financial safety. The sample inspector checks all 25 fixtures with expected fields separated. There is no implicit or live prediction mode; `python code/main.py` without an explicit mode exits nonzero. Final-run execution, accounting artifacts, package preparation and clean application reproduction still require corrected dependencies and the required correctness/freeze/run authority.
 

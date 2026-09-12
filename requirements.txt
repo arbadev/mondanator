@@ -1,7 +1,6 @@
-# Target runtime: Python >=3.10; Python 3.13 is the recommended setup.
-# Exact direct dependencies reported tested by evidence at b7be3b582db2db5de7e78aa153649c34c84952d1.
-# This is not a transitive lock or permission to import that commit/make live calls.
-# Secrets are environment-only; no automatic .env loading.
+# Required Python >=3.10; tested baseline Python 3.13.
+# Exact direct pins for offline evidence client/schema/image checks, not a transitive lock.
+# Secrets are environment-only; no automatic .env loading or speculative model SDKs.
 pydantic==2.13.5
 httpx==0.28.1
 Pillow==12.3.0

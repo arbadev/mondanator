@@ -194,12 +194,14 @@ def normalize_events(data: FinancialInput, batch: FactBatch):
             elif settlement is not None:
                 issues.append(issue("SETTLEMENT_APPLICABILITY_PROXY", "inclusive bill tiers resolved using supported settlement date; no earlier paid-date evidence",
                                     target=(event.event_id,), severity="info", impact="none"))
-        states = [f for f in active if isinstance(f.claim, (StateClaim, CancelClaim))]
+        states = [f for f in active if isinstance(f.claim, CancelClaim)
+                  or (isinstance(f.claim, StateClaim) and f.claim.value is not None)]
         status, state_ids = _choose(event, states, "status", sources)
         event = replace(event, amount=amount, status=status)
         approval = "unknown"
         obligation = "unknown"
-        metadata_facts = [f for f in states if isinstance(f.claim, StateClaim)]
+        metadata_facts = [f for f in active if isinstance(f.claim, StateClaim)
+                          and (f.claim.approval_state != "unknown" or f.claim.obligation_state != "unknown")]
         explicit_metadata = [f for f in metadata_facts if f.action in EXPLICIT_ACTIONS or f.supersedes_fact_ids]
         metadata_facts = explicit_metadata or metadata_facts
         metadata_times = [_actor_time(f, sources) for f in metadata_facts]
@@ -257,7 +259,8 @@ def normalize_events(data: FinancialInput, batch: FactBatch):
             disposition, reason = "future_cash", "CONFIRMED_SALARY" if event.direction == "credit" else "SCHEDULED_DEBIT"
         else:
             disposition, reason = "unresolved", "UNSUPPORTED_CASH_STATE"
-        ids = tuple(sorted(set((*date_ids, *amount_ids, *state_ids, *(f.fact_id for f in roles)))))
+        metadata_ids = (f.fact_id for f in metadata_facts if f.claim.value is None)
+        ids = tuple(sorted(set((*date_ids, *amount_ids, *state_ids, *metadata_ids, *(f.fact_id for f in roles)))))
         evidence_ids = tuple(sorted({event.source.source_id, *(e.source_id for f in (*active, *monetary) for e in f.evidence)}))
         result.append(ResolvedEvent(event.event_id, (event.event_id,), event, disposition, reason, ids,
                                     evidence_ids, role, approval, obligation))

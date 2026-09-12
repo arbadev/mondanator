@@ -4,8 +4,9 @@ Integration provides loaded source/event/request rows to EvidenceIndex, resolves
 image assets locally, and calls Extractor.extract(..., mode="cache-only").
 ExtractionResult contains only observations/issues; it is not a financial result.
 
-Runtime dependencies: Python>=3.10, pydantic>=2.11,<3; httpx>=0.28,<0.29;
-Pillow>=11,<13. Tested on Python 3.13. Live inference needs separately authorized configuration,
+Runtime dependencies (exact pins in requirements.txt): Python>=3.10,
+pydantic==2.13.5, httpx==0.28.1, Pillow==12.3.0. Tested on Python 3.13, POSIX
+only (the cache uses fcntl). Live inference needs separately authorized configuration,
 an explicit key, a RunBudget and a justified per-attempt cost upper bound; this
 package does not open .env or perform inference on import.
 

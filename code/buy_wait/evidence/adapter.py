@@ -162,6 +162,8 @@ def adapt_extraction(result: ExtractionResult, *, request_id: str, user_id: str,
         return target
 
     def emit(fact, target, claim, *, suffix="", evidence=None):
+        if isinstance(target, core.SeriesTarget) and fact.effect_window.scope == "unspecified":
+            raise private.EvidenceError("unspecified_series_scope")
         start, end = _bounds(fact)
         identity = core.canonical_hash((source.row_sha256, result.content_sha256, fact.model_dump(mode="json") | {"evidence": []},
                                         core.canonical_data(target), core.canonical_data(claim), suffix))
@@ -230,9 +232,8 @@ def adapt_extraction(result: ExtractionResult, *, request_id: str, user_id: str,
                 else:
                     if not isinstance(target, core.EventTarget):
                         raise private.EvidenceError("state_needs_known_occurrence")
-                    state = events[target.event_id].status
-                    claim = (core.StateClaim(state, approval_state=payload.value) if payload.axis == "approval"
-                             else core.StateClaim(state, obligation_state=payload.value))
+                    claim = (core.StateClaim(None, approval_state=payload.value) if payload.axis == "approval"
+                             else core.StateClaim(None, obligation_state=payload.value))
                 emit(observed, target, claim)
             elif isinstance(payload, private.DateClaim):
                 if payload.value is None:
