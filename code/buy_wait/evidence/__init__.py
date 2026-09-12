@@ -16,9 +16,11 @@ from .openrouter_client import ExtractorConfig, OpenRouterClient, load_api_key
 from .retrieval import EvidenceIndex, Selection, Source
 from .schema import EvidenceError, ModelExtraction
 from .usage import MemoryUsageSink, RunBudget, UsageEvent, UsageSink
+from .adapter import AdaptedEvidence, adapt_extraction, event_descriptors
 
 __all__ = [
     "EvidenceError", "EvidenceIndex", "ExtractionCache", "ExtractionResult", "Extractor",
     "ExtractorConfig", "ImageAsset", "MemoryUsageSink", "ModelExtraction", "OpenRouterClient",
     "RunBudget", "Selection", "Source", "UsageEvent", "UsageSink", "load_api_key", "resolve_image",
+    "AdaptedEvidence", "adapt_extraction", "event_descriptors",
 ]
