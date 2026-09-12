@@ -150,9 +150,11 @@ def one_shot_payment(
 def action_families(envelope, core) -> dict:
     """Enumerate <=3 distinct-series Stop/floor-ReduceTo representatives.
 
-    Only metadata bounds are calculated here. Core alone applies effects. A
-    covered-budget dependency between changed occurrences invalidates the simple
-    monotonicity certificate and is reported unresolved, never silently pruned.
+    Only metadata bounds are calculated here. Core alone applies effects. Exact
+    metadata-identical aliases share a serialization representative; all alias
+    domains remain in the trace, without a financial preference between them.
+    Covered-budget dependencies between changed occurrences invalidate the simple
+    monotonicity certificate and are reported unresolved, never silently pruned.
     """
     from itertools import combinations, product
     from buy_wait.contracts import ReduceTo, Stop, canonical_hash
@@ -199,7 +201,23 @@ def action_families(envelope, core) -> dict:
             choices.append((ReduceTo(eid, floor), target,
                             {"kind": "reduce_to", "minimum_minor": floor.minor,
                              "maximum_minor": ceiling, "representative_minor": floor.minor}))
-    groups = tuple((sid, choices) for sid, choices in sorted(grouped.items()) if choices)
+    groups = []
+    for sid, choices in sorted(grouped.items()):
+        equivalent = {}
+        for change, target, domain in choices:
+            signature = canonical_hash({
+                "series_id": sid, "category": target.category, "flexibility": target.flexibility,
+                "floor": target.floor, "allowed_actions": sorted(target.allowed_actions),
+                "occurrence_ids": target.eligible_occurrence_ids, "domain": domain,
+                "action": type(change).__name__, "amount": getattr(change, "new_amount", None),
+            })
+            equivalent.setdefault(signature, []).append((change, target, domain))
+        if equivalent:
+            # Input anchors were sorted above. This selects serialization only
+            # within proven effect/eligibility-equivalent alias classes, not rank.
+            representatives = tuple((*values[0], tuple(v[1].anchor_event_id for v in values))
+                                    for values in equivalent.values())
+            groups.append((sid, representatives))
     families = []
     for size in range(1, min(3, len(groups)) + 1):
         for selected_groups in combinations(groups, size):
@@ -220,6 +238,8 @@ def action_families(envelope, core) -> dict:
                     "series_ids": tuple(t.series_id for t in targets),
                     "event_ids": tuple(t.anchor_event_id for t in targets),
                     "occurrence_ids": tuple(occurrence_ids), "amount_domains": tuple(item[2] for item in choice),
+                    "alias_domains": tuple(item[3] for item in choice),
+                    "alias_proof": "identical_core_target_metadata_serialization_only",
                     "proof": "I006_monotone_expense_only_fixed_covered_occurrences",
                     "policy_version": core.policy.version,
                 })
@@ -244,6 +264,8 @@ def generate_candidates(envelope, core, *, phase="no_changes", max_candidates=No
         raise ValueError("candidate limit must be a nonnegative integer or None")
     request = envelope.request
     plans, exclusions, families = [], [], ()
+    plan_ids = set()
+    envelope_hash = envelope.context_hash
     complete = True
     if (request.request_id != core.request_id or request.user_id != core.user_id
             or request.request_date != core.request_date or request.requested_amount != core.requested):
@@ -262,14 +284,15 @@ def generate_candidates(envelope, core, *, phase="no_changes", max_candidates=No
                                    "limit": max_candidates})
             complete = False
             return False
-        identity = {"core": core.context_hash, "envelope": envelope.context_hash,
+        identity = {"core": core.context_hash, "envelope": envelope_hash,
                     "method": method, "payments": payments, "changes": changes,
                     "option_id": option_id}
         candidate = Plan(candidate_id="candidate:" + canonical_hash(identity), method=method,
-                         payments=payments, core_hash=core.context_hash, envelope_hash=envelope.context_hash,
+                         payments=payments, core_hash=core.context_hash, envelope_hash=envelope_hash,
                          changes=changes, payment_option_id=option_id, origin=origin, family=family,
                          evidence_ids=tuple(c.anchor_event_id for c in changes))
-        if not any(p.candidate_id == candidate.candidate_id for p in plans):
+        if candidate.candidate_id not in plan_ids:
+            plan_ids.add(candidate.candidate_id)
             plans.append(candidate)
         return True
 
