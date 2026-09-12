@@ -33,6 +33,9 @@ class SchemaTests(unittest.TestCase):
         raw = observation()
         self.assertEqual(self.valid(raw).facts[0].payload.value, "880.00")
         raw["facts"][0]["payload"].update(value=None, raw=None)
+        with self.assertRaises(EvidenceError):
+            self.valid(raw)  # missing money must be acknowledged, not an "ok" fact
+        raw["issues"] = [{"code": "missing_amount", "fact_local_ids": ["f1"], "detail": "Amount is not stated."}]
         self.assertIsNone(self.valid(raw).facts[0].payload.value)
         zero = observation(text="Net received EUR 0", value="0", raw="0")
         self.assertEqual(self.valid(zero, "Net received EUR 0").facts[0].payload.value, "0")
