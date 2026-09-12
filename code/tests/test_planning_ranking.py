@@ -62,7 +62,7 @@ class RankingTests(PlanningTestCase):
         high = validation(plan=plan(plan_id="high", supplied_option_id="payment_option_03"))
         for ordered in permutations((low, missing, high)):
             result = best_ranked_candidates(ordered)
-            self.assertEqual({r.plan.plan_id for r in result}, {"low", "partial"})
+            self.assertEqual({r.plan.candidate_id for r in result}, {"low", "partial"})
 
     def test_same_option_action_count_is_unspecified_not_new_preference(self):
         one = validation(plan=plan(plan_id="one", supplied_option_id="payment_option_01",
@@ -90,7 +90,7 @@ class RankingTests(PlanningTestCase):
     def test_currency_or_context_mixing_is_rejected(self):
         for other in (validation(actual_total_paid=money(10000, "EUR")),
                       validation(plan=plan(core_hash="other")),
-                      validation(plan=plan(request_id="another"))):
+                      validation(request_id="another")):
             with self.subTest(other=other), self.assertRaises(ValueError):
                 best_ranked_candidates((validation(), other))
 
@@ -146,7 +146,7 @@ class RankingTests(PlanningTestCase):
             best = best_ranked_candidates(ordered)
             winner, reason = serialization_representative(best)
             self.assertEqual(reason, "serialization_only")
-            selections.append(winner.plan.plan_id)
+            selections.append(winner.plan.candidate_id)
         self.assertEqual(selections, ["a", "a"])
         self.assertEqual(serialization_representative(()), (None, "no_valid_plan"))
         self.assertEqual(serialization_representative((first,)), (first, "unique"))

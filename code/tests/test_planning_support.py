@@ -1,57 +1,15 @@
-"""Test-only doubles while Firstmate arranges the committed core handoff.
+"""Real canonical financial records plus test-only envelope/result views.
 
-No fake contracts are installed by production code. When canonical contracts are
-present, these tests use their Money/Payment/Stop/ReduceTo classes instead. The
-namespace fixtures exercise static planning and comparison, not financial safety.
+No production contract or replay is replaced. Namespace views stand in only for
+integration-owned request/preferences/options and derived comparison fixtures.
 """
-from __future__ import annotations
-
-from dataclasses import dataclass
 from datetime import date, timedelta
-import importlib
-from types import ModuleType, SimpleNamespace as NS
+from types import SimpleNamespace as NS
 import unittest
-from unittest.mock import patch
 
+from buy_wait.contracts import Money, Payment, Plan, ReduceTo, Stop
 
-try:
-    CONTRACTS = importlib.import_module("buy_wait.contracts")
-    USING_TEST_CONTRACTS = False
-except ModuleNotFoundError as exc:
-    if exc.name != "buy_wait.contracts":
-        raise
-    USING_TEST_CONTRACTS = True
-    CONTRACTS = ModuleType("buy_wait.contracts")
-
-    @dataclass(frozen=True)
-    class TestMoney:
-        currency: str
-        minor: int
-
-    @dataclass(frozen=True)
-    class TestPayment:
-        date: date
-        amount: TestMoney
-        payment_id: str
-
-    @dataclass(frozen=True)
-    class TestStop:
-        anchor_event_id: str
-
-    @dataclass(frozen=True)
-    class TestReduceTo:
-        anchor_event_id: str
-        new_amount: TestMoney
-
-    CONTRACTS.Money = TestMoney
-    CONTRACTS.Payment = TestPayment
-    CONTRACTS.Stop = TestStop
-    CONTRACTS.ReduceTo = TestReduceTo
-
-Money = CONTRACTS.Money
-Payment = CONTRACTS.Payment
-Stop = CONTRACTS.Stop
-ReduceTo = CONTRACTS.ReduceTo
+USING_TEST_CONTRACTS = False
 R = date(2030, 1, 1)
 H = R + timedelta(days=90)
 
@@ -91,8 +49,9 @@ def option(**overrides):
 
 
 def core(**overrides):
+    """Static-check view only; actual replay tests build a genuine CoreContext."""
     fields = dict(request_id="req", user_id="user", request_date=R, requested=money(10000),
-                  context_hash="core-hash", horizon_end=H, change_targets=(),
+                  context_hash="core-hash", horizon_end=H, change_targets=(), issues=(),
                   capacity=NS(amount_safe_to_pay=money(4000),
                               earliest_date_for_full_payment=R + timedelta(days=10),
                               baseline_feasible=True, proof_status="resolved_under_policy"))
@@ -107,11 +66,13 @@ def envelope(**overrides):
 
 
 def plan(**overrides):
-    fields = dict(plan_id="plan", request_id="req", core_hash="core-hash",
-                  envelope_hash="env-hash", method="full_payment", payments=(payment(),),
-                  changes=(), supplied_option_id=None)
+    # Fixture keyword aliases preserve earlier case descriptions, never domain types.
+    aliases = {"plan_id": "candidate_id", "supplied_option_id": "payment_option_id"}
+    overrides = {aliases.get(key, key): value for key, value in overrides.items()}
+    fields = dict(candidate_id="plan", core_hash="core-hash", envelope_hash="env-hash",
+                  method="full_payment", payments=(payment(),), changes=(), payment_option_id=None)
     fields.update(overrides)
-    return NS(**fields)
+    return Plan(**fields)
 
 
 def target(**overrides):
@@ -123,10 +84,10 @@ def target(**overrides):
 
 
 def validation(**overrides):
-    fields = dict(plan=plan(), outcome="valid", eligible=True, completes_by_deadline=True,
-                  replay_performed=True, financial_proof_status="resolved_under_policy",
-                  actual_total_paid=money(10000), first_payment_date=R, payment_count=1,
-                  has_spending_changes=False)
+    fields = dict(plan=plan(), request_id="req", outcome="valid", eligible=True,
+                  completes_by_deadline=True, replay_performed=True,
+                  financial_proof_status="resolved_under_policy", actual_total_paid=money(10000),
+                  first_payment_date=R, payment_count=1, has_spending_changes=False)
     fields.update(overrides)
     return NS(**fields)
 
@@ -145,10 +106,4 @@ def codes(issues):
 
 
 class PlanningTestCase(unittest.TestCase):
-    def setUp(self):
-        super().setUp()
-        # Scoped replacement is exclusively a test fixture, never a runtime fallback.
-        if USING_TEST_CONTRACTS:
-            guard = patch.dict("sys.modules", {"buy_wait.contracts": CONTRACTS})
-            guard.start()
-            self.addCleanup(guard.stop)
+    pass

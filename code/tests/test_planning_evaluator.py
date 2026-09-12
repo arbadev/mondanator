@@ -1,5 +1,6 @@
 """Static contract behavior only: no mock balance result is engine evidence."""
 from copy import deepcopy
+from dataclasses import replace
 from datetime import timedelta
 from types import SimpleNamespace as NS
 
@@ -40,7 +41,7 @@ class StaticEvaluatorTests(PlanningTestCase):
     def test_hash_request_user_and_currency_identity(self):
         result = codes(static_rejections(plan(core_hash="stale"), envelope(), core()))
         self.assertIn("CONTEXT_HASH_MISMATCH", result)
-        result = codes(static_rejections(plan(request_id="other"), envelope(), core()))
+        result = codes(static_rejections(plan(), envelope(request=request(request_id="other")), core()))
         self.assertIn("REQUEST_IDENTITY_MISMATCH", result)
         result = codes(static_rejections(plan(payments=(payment(currency="EUR"),)), envelope(), core()))
         self.assertIn("PAYMENT_CURRENCY_MISMATCH", result)
@@ -123,16 +124,16 @@ class StaticEvaluatorTests(PlanningTestCase):
     def test_altered_installment_last_payment_is_rejected(self):
         candidate, env = self.installment()
         old = candidate.payments
-        candidate.payments = old[:-1] + (payment(old[-1].date, 3499, "changed"),)
+        candidate = replace(candidate, payments=old[:-1] + (payment(old[-1].date, 3499, "changed"),))
         self.assertIn("OPTION_SCHEDULE_MISMATCH", codes(static_rejections(candidate, env, core())))
 
     def test_offer_identity_and_required_id(self):
         candidate, env = self.installment()
-        candidate.supplied_option_id = None
+        candidate = replace(candidate, payment_option_id=None)
         self.assertIn("SUPPLIED_OPTION_REQUIRED", codes(static_rejections(candidate, env, core())))
-        candidate.supplied_option_id = "missing"
+        candidate = replace(candidate, payment_option_id="missing")
         self.assertIn("UNKNOWN_OPTION", codes(static_rejections(candidate, env, core())))
-        candidate.supplied_option_id = "payment_option_01"
+        candidate = replace(candidate, payment_option_id="payment_option_01")
         env.options_by_id["payment_option_01"].request_id = "other-request"
         self.assertIn("OPTION_WRONG_REQUEST", codes(static_rejections(candidate, env, core())))
 
