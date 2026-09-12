@@ -60,6 +60,17 @@ Use `EvidenceIndex.from_context(data.context_for(row)).retrieve(...)`, the core 
 
 Evidence owns `UsageEvent` and `UsageSink`; `event.to_dict()` retains canonical physical attempt IDs, retry relationships, outcome/model/provider, nullable token counts/cost strings, and cache-origin attempt references. Integration must durably persist/aggregate those events and returned `ExtractionResult.origin_usage`, not invent another billable-call counter. New cache hits have zero new cost but consumed origin costs are separate; unknown usage remains unknown. No live client is needed for cache-only composition.
 
+### Open evidence review limitations (inbox016)
+
+The imported `b7be3b582db2db5de7e78aa153649c34c84952d1` boundary still has two financial-adapter findings in active review `01M2BXNHDVGYJDC27JR94ZMHK4`:
+
+- `approval-obligation-copies-csv-status`: metadata-only approval/obligation observations copy the event's CSV cash status into a sourced StateClaim. The review's pending-bill example has an explicit settled fact plus an obligation-closed fact that reasserts pending; this can prevent the genuine settlement from winning, or mask settlement of a credit.
+- `unspecified-window-becomes-permanent-series`: a host-bound SeriesTarget with unspecified duration becomes an all-future-cycle amendment; a10% salary increase can therefore become permanent without supporting scope evidence.
+
+These are reported review cases, not independently reproduced/fixed by integration. The owner/Firstmate must route corrected committed interfaces; **do not repair imported code, answer the evidence gate or import an unlisted pipeline head**. All297 passing tests remain real but do not establish absence of these defects. No final output, package or complete correctness claim is allowed against this known boundary.
+
+The same review lists stale setup/docs on the evidence branch and the POSIX/fcntl limit. Integration's agreed Python3.13 exact-pin setup and docs have already been implemented/locally installed and tested here; that does not claim the evidence pipeline's findings are closed. Native Windows remains unsupported. Continue deterministic runner/accounting tests without a new model-driven loop or paid calls.
+
 ### Controlled planning import (inbox015)
 
 At clean corrected-core checkpoint8ffe945 (202 tests passing), imported only the authorized planning-only commits with `-x`:
