@@ -27,7 +27,7 @@ git clone https://github.com/arbadev/mondanator.git
 cd mondanator
 ```
 
-The current **integration foundation** uses Python **3.9+**, with no third-party runtime dependencies at this checkpoint. Python 3.9.6 is locally tested; CI is configured for 3.9 and 3.12. See [`docs/integration.md`](docs/integration.md) for exact module boundaries and remaining dependencies. This checkpoint is **not a complete financial agent**.
+The target runtime requires **Python 3.10+**; **Python 3.13** is recommended. `requirements.txt` pins the evidence owner's reported tested direct dependencies: Pydantic 2.13.5, HTTPX 0.28.1 and Pillow 12.3.0. CI is configured for Python 3.10/3.13. These replace the earlier dependency-free Python 3.9 setup, which cannot support extraction. A clean dependency installation and composed extraction behavior are **not yet verified here**, and remote CI is not claimed green. See [`docs/integration.md`](docs/integration.md) for ownership and dependency limits. This checkpoint is **not a complete financial agent**.
 
 Your solution must:
 
@@ -35,22 +35,25 @@ Your solution must:
 - Generate one prediction for every request
 - Write the final predictions to `output.csv` in the repository root
 
-Run the available **read-only** checks and offline behavioral tests:
+Create an isolated environment, then run the available **read-only** checks and offline behavioral tests (no credentials or live-model calls are needed):
 
 ```bash
-python3 code/main.py --dataset dataset --check-inputs
-python3 code/evaluation/main.py --dataset dataset
-python3 -m unittest discover -s code/tests -p 'test_*.py' -v
+python3.13 -m venv .venv
+. .venv/bin/activate
+python -m pip install -r requirements.txt
+python code/main.py --dataset dataset --check-inputs
+python code/evaluation/main.py --dataset dataset
+PYTHONPATH=code PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s code/tests -p 'test_*.py' -v
 ```
 
-On Windows, use `python` instead of `python3` if that is the installed command. An optional virtual environment can be created with `python3 -m venv .venv`; install its dependencies using `.venv/bin/python -m pip install -r requirements.txt` (Windows: `.venv\\Scripts\\python -m pip install -r requirements.txt`). The current requirements file is stdlib-only.
+The evidence cache currently requires **POSIX/fcntl (Linux/macOS)**. Native Windows cache support is not implemented or verified; use a Linux/WSL environment with the POSIX commands above for the combined application. Dependency installation may access the package index; the tests themselves must remain offline. Pins are direct dependencies, not a complete transitive lock.
 
-Neither inspection command generates predictions, performs extraction, reads credentials or certifies financial safety. The sample inspector checks all 25 fixtures with expected fields separated. The final inference CLI, usage aggregation, package construction and clean reproduction will be connected only after committed financial/evidence/planning dependencies and the required correctness/freeze/run authority; `python3 code/main.py` without `--check-inputs` deliberately exits nonzero instead of inventing output.
+Neither inspection command generates predictions, performs extraction, reads credentials or certifies financial safety. The sample inspector checks all 25 fixtures with expected fields separated. The final inference CLI, usage aggregation, package construction and clean reproduction will be connected only after committed financial/evidence/planning dependencies and the required correctness/freeze/run authority; `python code/main.py` without `--check-inputs` deliberately exits nonzero instead of inventing output.
 
 For an **already-produced public-development** prediction CSV (not evaluation labels), retain a new, immutable run directory:
 
 ```bash
-python3 code/evaluation/main.py --dataset dataset --predictions public-predictions.csv --run-id dev-baseline
+python code/evaluation/main.py --dataset dataset --predictions public-predictions.csv --run-id dev-baseline
 ```
 
 Use a new ID for every iteration. No existing baseline is overwritten, and missing financial/grounding audits remain `not_checked`. These comparisons are development evidence, not independent generalization. No complete-model baseline has been measured at this checkpoint.

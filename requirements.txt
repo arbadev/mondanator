@@ -1,4 +1,7 @@
-# Integration/explicit-core checkpoint: Python >=3.9, standard library only.
-# No third-party packages are required by these offline modules/tests.
-# The evidence owner's committed client dependencies must be pinned at handoff;
-# do not install speculative model SDKs or automatically load .env.
+# Target runtime: Python >=3.10; Python 3.13 is the recommended setup.
+# Exact direct dependencies reported tested by evidence at b7be3b582db2db5de7e78aa153649c34c84952d1.
+# This is not a transitive lock or permission to import that commit/make live calls.
+# Secrets are environment-only; no automatic .env loading.
+pydantic==2.13.5
+httpx==0.28.1
+Pillow==12.3.0
