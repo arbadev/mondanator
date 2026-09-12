@@ -75,8 +75,10 @@ class SourceRef:
         for value in (self.row_number, self.physical_line):
             if value is not None:
                 _integer(value, "source row", 1)
-        if self.known_at is not None and self.known_at.utcoffset() is None:
+        if self.known_at is not None and (not isinstance(self.known_at, datetime) or self.known_at.utcoffset() is None):
             raise ValueError("known_at must be timezone-aware")
+        if self.actor_key == "":
+            object.__setattr__(self, "actor_key", None)
 
 
 @dataclass(frozen=True)
@@ -148,6 +150,12 @@ class SeriesTarget:
     description_key: Optional[str] = None
     actor_key: Optional[str] = None
 
+    def __post_init__(self):
+        if not self.user_id or not self.category:
+            raise ValueError("series target needs evidenced user and category")
+        _choice(self.currency, CURRENCIES, "series target currency")
+        _choice(self.direction, ("debit", "credit", "non_cash"), "series target direction")
+
 
 @dataclass(frozen=True)
 class NewOccurrenceTarget:
@@ -164,11 +172,19 @@ class AmountClaim:
     role: Literal["net_cash", "payable", "balance_only"]
     kind: str = field(default="amount", init=False)
 
+    def __post_init__(self):
+        if not isinstance(self.value, Money):
+            raise ValueError("accepted amount observations require exact Money")
+        _choice(self.role, ("net_cash", "payable", "balance_only"), "amount role")
+
 
 @dataclass(frozen=True)
 class DateClaim:
     value: Day
     kind: str = field(default="settlement_date", init=False)
+
+    def __post_init__(self):
+        _day(self.value, "settlement-date claim")
 
 
 @dataclass(frozen=True)
@@ -189,6 +205,9 @@ class IncomeRoleClaim:
     value: IncomeRole
     kind: str = field(default="income_role", init=False)
 
+    def __post_init__(self):
+        _choice(self.value, ("regular_salary", "one_off", "prorated", "unknown", "not_applicable"), "income role")
+
 
 @dataclass(frozen=True)
 class CancelClaim:
@@ -199,6 +218,10 @@ class CancelClaim:
 class SeriesAmountClaim:
     value: Money
     kind: str = field(default="series_amount", init=False)
+
+    def __post_init__(self):
+        if not isinstance(self.value, Money):
+            raise ValueError("series amount requires exact Money")
 
 
 @dataclass(frozen=True)
@@ -218,6 +241,13 @@ class RecurrenceClaim:
     income_kind: str = "not_applicable"
     kind: str = field(default="recurrence", init=False)
 
+    def __post_init__(self):
+        if not isinstance(self.cadence, (CalendarMonth, FixedDays)):
+            raise ValueError("recurrence requires a supported cadence")
+        if self.amount is not None and not isinstance(self.amount, Money):
+            raise ValueError("recurrence amount must be Money or unknown")
+        _choice(self.income_kind, ("regular_salary", "other", "not_applicable"), "recurrence income kind")
+
 
 @dataclass(frozen=True)
 class NewCashClaim:
@@ -230,6 +260,18 @@ class NewCashClaim:
     state: CashState
     income_kind: str = "not_applicable"
     kind: str = field(default="new_cash", init=False)
+
+    def __post_init__(self):
+        _choice(self.currency, CURRENCIES, "new cash currency")
+        _choice(self.direction, ("debit", "credit", "non_cash"), "new cash direction")
+        _choice(self.state, CASH_STATES, "new cash state")
+        _choice(self.income_kind, ("regular_salary", "one_off", "other", "not_applicable"), "new cash income kind")
+        if not self.event_type or not self.category:
+            raise ValueError("new cash needs evidenced type/category")
+        if self.amount is not None and (not isinstance(self.amount, Money) or self.amount.currency != self.currency):
+            raise ValueError("new cash amount currency mismatch")
+        if self.settlement_date is not None:
+            _day(self.settlement_date, "new cash settlement date")
 
 
 @dataclass(frozen=True)
@@ -259,6 +301,11 @@ class Fact:
     def __post_init__(self):
         object.__setattr__(self, "evidence", tuple(self.evidence))
         object.__setattr__(self, "supersedes_fact_ids", tuple(self.supersedes_fact_ids))
+        if not self.fact_id or not isinstance(self.target, (EventTarget, SeriesTarget, NewOccurrenceTarget)):
+            raise ValueError("fact requires an ID and typed target")
+        if not isinstance(self.claim, (AmountClaim, DateClaim, StateClaim, IncomeRoleClaim, CancelClaim,
+                                       SeriesAmountClaim, SeriesScaleClaim, RecurrenceClaim, NewCashClaim, RelationClaim)):
+            raise ValueError("fact requires a closed typed claim, never an arbitrary patch")
         _choice(self.action, ("observe", "confirm", "amend", "cancel", "settle", "delay", "start", "end"), "fact action")
         _choice(self.scope, ("occurrence", "series"), "fact scope")
         _choice(self.certainty, ("supported", "ambiguous", "unreadable"), "fact certainty")
@@ -549,6 +596,8 @@ class Payment:
 
     def __post_init__(self):
         _day(self.date, "payment date")
+        if not isinstance(self.amount, Money):
+            raise ValueError("payment amount must be exact Money")
         if not self.payment_id:
             raise ValueError("payment_id is required")
 

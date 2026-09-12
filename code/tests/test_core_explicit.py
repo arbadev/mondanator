@@ -274,11 +274,10 @@ class FactCompatibilityTests(unittest.TestCase):
         a, b = event("a", 600, 1), event("b", 700, 2, direction="credit", category="salary")
         self.assertEqual(build((a, b)), build((b, a)))
 
-    def test_explicit_slice_never_certifies_unimplemented_recurrence(self):
-        history = tuple(event(str(i), 100, -30 * (i + 1), status="settled") for i in range(3))
-        core = build(history)
+    def test_explicit_only_development_mode_never_certifies_full_safety(self):
+        core = build(policy=ForecastPolicy(projection_mode="explicit_only"))
         self.assertEqual(core.capacity.proof_status, "unresolved")
-        self.assertIn("RECURRENCE_SLICE_INCOMPLETE", core.capacity.issue_codes)
+        self.assertIn("EXPLICIT_ONLY_NOT_FULL_PROOF", core.capacity.issue_codes)
 
 
 if __name__ == "__main__":

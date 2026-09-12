@@ -106,8 +106,8 @@ def project(anchor, occurrences, policy, *, issues=(), payments=()):
     for payment in payments:
         if not start <= payment.date <= end or payment.date < previous:
             raise ValueError("payment dates must be chronological inside original horizon")
-        if payment.amount.currency != home or payment.amount.minor <= 0:
-            raise ValueError("payments must be positive home-currency amounts")
+        if payment.amount.currency != home or payment.amount.minor < 0:
+            raise ValueError("payments must be nonnegative home-currency amounts")
         if payment.payment_id in payment_ids:
             raise ValueError("duplicate payment ID")
         payment_ids.add(payment.payment_id)
