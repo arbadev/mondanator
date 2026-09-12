@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import timedelta, timezone
-from typing import Tuple
 
 from buy_wait.contracts import (
     AmountClaim, CancelClaim, DateClaim, EventRecord, EventTarget, EvidenceIssue,
