@@ -277,6 +277,17 @@ class ModelExtraction(Closed):
             raise ValueError("missing_issue")
         if self.issuer_name and not any(self.issuer_name in s.quote for s in self.issuer_evidence):
             raise ValueError("unsupported_issuer")
+        for fact in self.facts:
+            attached = {issue.code for issue in self.issues if not issue.fact_local_ids or fact.local_id in issue.fact_local_ids}
+            if isinstance(fact.payload, Amount):
+                if fact.payload.value is None and not attached.intersection({"missing_amount", "ambiguous_amount", "unreadable_region"}):
+                    raise ValueError("unknown_amount_requires_issue")
+                if fact.payload.currency is None and "ambiguous_currency" not in attached:
+                    raise ValueError("unknown_currency_requires_issue")
+            if isinstance(fact.payload, DateClaim) and fact.payload.value is None and "ambiguous_date" not in attached:
+                raise ValueError("unknown_date_requires_issue")
+            if fact.certainty == "ambiguous" and not attached:
+                raise ValueError("ambiguous_fact_requires_issue")
         return self
 
 
