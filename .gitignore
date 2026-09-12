@@ -1,1 +1,17 @@
 log.txt
+.env
+.env.*
+!.env.example
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+/.scout/
+/.test-tmp/
+/evaluation/runs/
+/evaluation/usage_report.md
+/output.csv
+/code.zip
+/chat_transcript
+/chat_transcript.*
