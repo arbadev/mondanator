@@ -20,17 +20,22 @@ from buy_wait.evidence import (
     EvidenceError, EvidenceIndex, ExtractionCache, Extractor, ExtractorConfig,
     OpenRouterClient, RunBudget, event_descriptors, load_api_key, resolve_image,
 )
-from evaluation.usage import JsonlUsageSink, aggregate_usage, read_usage_events
+from evaluation.usage import AccountingError, JsonlUsageSink, aggregate_usage, read_usage_events
+
+MAX_USD = Decimal("5")
+
+
+def _bounded_usd(amount) -> Decimal:
+    if not isinstance(amount, Decimal) or not amount.is_finite() or amount <= 0 or amount > MAX_USD:
+        raise DataError("USD bounds must be finite Decimals greater than zero and no more than 5")
+    return amount
 
 
 def _usd(value: str) -> Decimal:
     try:
-        amount = Decimal(value)
+        return _bounded_usd(Decimal(value))
     except (InvalidOperation, ValueError):
-        raise argparse.ArgumentTypeError("USD budget must be a finite positive decimal") from None
-    if not amount.is_finite() or amount <= 0 or amount > Decimal("5"):
-        raise argparse.ArgumentTypeError("USD budget must be greater than zero and no more than 5")
-    return amount
+        raise argparse.ArgumentTypeError("USD budget must be greater than zero and no more than 5") from None
 
 
 def _outside_dataset(path: Path, dataset_root: Path, *, label: str) -> Path:
@@ -57,8 +62,8 @@ def populate_cache(dataset_root, *, cache_root, receipt_path, run_id: str,
         raise DataError("live extraction requires verified account logging and authenticated availability")
     if type(max_calls) is not int or max_calls < 1:
         raise DataError("max calls must be a positive integer")
-    if not isinstance(max_cost, Decimal) or not isinstance(attempt_cost_bound, Decimal):
-        raise DataError("USD bounds must be Decimals")
+    _bounded_usd(max_cost)
+    _bounded_usd(attempt_cost_bound)
     dataset_root = Path(dataset_root).resolve()
     cache_root = _outside_dataset(Path(cache_root), dataset_root, label="cache")
     receipt_path = _outside_dataset(Path(receipt_path), dataset_root, label="receipt ledger")
@@ -72,19 +77,23 @@ def populate_cache(dataset_root, *, cache_root, receipt_path, run_id: str,
 
     data = Dataset.load(dataset_root)
     requests, _ = load_requests(dataset_root)
-    cache = ExtractionCache(cache_root)
     usage = JsonlUsageSink(receipt_path, run_id=run_id)
+    cache = ExtractionCache(cache_root)
     extractor = Extractor(cache=cache, usage=usage, run_id=run_id, client=client,
                           config=ExtractorConfig(), budget=RunBudget(max_calls=max_calls, max_cost=max_cost))
     seen, origins, outcomes, issues = set(), [], Counter(), Counter()
     for request in requests:
         raw = project_request(request)
         financial = data.financial_input_for(raw)
-        descriptors = event_descriptors({event.event_id: event for event in financial.events}, user_id=financial.user_id)
-        selection = EvidenceIndex.from_context(data.context_for(raw)).retrieve(
-            user_id=financial.user_id, request_id=financial.request_id,
-            event_ids=tuple(descriptors), as_of=financial.request_date,
-        )
+        try:
+            descriptors = event_descriptors({event.event_id: event for event in financial.events}, user_id=financial.user_id)
+            selection = EvidenceIndex.from_context(data.context_for(raw)).retrieve(
+                user_id=financial.user_id, request_id=financial.request_id,
+                event_ids=tuple(descriptors), as_of=financial.request_date,
+            )
+        except EvidenceError as exc:
+            issues[exc.code] += 1
+            continue
         for source in selection.sources:
             # Each source is extracted once per source+context cache key. The
             # existing cache lock provides producer deduplication; receipts retain
@@ -97,9 +106,14 @@ def populate_cache(dataset_root, *, cache_root, receipt_path, run_id: str,
                     outcomes["unavailable"] += 1
                     issues[exc.code] += 1
                     continue
-            result = extractor.extract(source, candidate_events=descriptors, asset=asset,
-                                       as_of=financial.request_date, mode="live",
-                                       cost_upper_bound=attempt_cost_bound)
+            try:
+                result = extractor.extract(source, candidate_events=descriptors, asset=asset,
+                                           as_of=financial.request_date, mode="live",
+                                           cost_upper_bound=attempt_cost_bound)
+            except EvidenceError as exc:
+                outcomes["unavailable"] += 1
+                issues[exc.code] += 1
+                continue
             seen.add((source.source_id, result.cache_key))
             outcomes[result.outcome] += 1
             issues.update(result.issues)
@@ -132,8 +146,16 @@ def main(argv=None):
                                 attempt_cost_bound=args.per_attempt_bound_usd, live=args.live,
                                 account_logging_verified=args.account_logging_verified,
                                 authenticated_availability_verified=args.authenticated_availability_verified)
-    except (DataError, EvidenceError, ValueError) as exc:
-        parser.exit(2, f"cache population failed: {type(exc).__name__}\n")
+    except (DataError, EvidenceError, ValueError, OSError) as exc:
+        if isinstance(exc, EvidenceError):
+            detail = f": {exc.code}"
+        elif isinstance(exc, (DataError, AccountingError)):
+            detail = f": {exc}"
+        elif isinstance(exc, OSError) and exc.strerror:
+            detail = f": {exc.strerror}"
+        else:
+            detail = ""
+        parser.exit(2, f"cache population failed: {type(exc).__name__}{detail}\n")
     print(json.dumps(result, sort_keys=True, indent=2))
     return 0 if result["accounting_complete"] else 3
 
