@@ -73,6 +73,66 @@ def _choose(event, candidates, field, sources):
     return result, ids
 
 
+def _dedupe_superseded(candidates):
+    all_ids = {f.fact_id for f in candidates}
+    superseded = {x for f in candidates for x in f.supersedes_fact_ids if x in all_ids}
+    return [f for f in candidates if f.fact_id not in superseded]
+
+
+def _select_metadata_with_source_recency(candidates, sources):
+    chosen = _dedupe_superseded(candidates)
+    if not chosen:
+        return None
+    explicit = [f for f in chosen if f.action in EXPLICIT_ACTIONS or f.supersedes_fact_ids]
+    chosen = explicit or chosen
+    actor_times = [_actor_time(f, sources) for f in chosen]
+    actors = {a for a, _ in actor_times}
+    if len(actors) == 1 and None not in actors and all(t is not None for _, t in actor_times):
+        latest = max(t for _, t in actor_times)
+        chosen = [f for f, (_, t) in zip(chosen, actor_times) if t == latest]
+    if not chosen:
+        return None
+    return sorted(chosen, key=lambda f: f.fact_id)[-1]
+
+
+def _has_source_recency(candidates, sources):
+    actor_times = [_actor_time(f, sources) for f in candidates]
+    actors = {actor for actor, _ in actor_times}
+    return len(actors) == 1 and None not in actors and all(known is not None for _, known in actor_times)
+
+
+def _select_income_role(candidates, sources):
+    deduped = _dedupe_superseded(candidates)
+    if not deduped:
+        return None
+    selected = _select_metadata_with_source_recency(deduped, sources)
+    if selected is None:
+        return None
+    roles = {f.claim.value for f in deduped}
+    # Supersession or a same-source timestamp resolves a disagreement.  Otherwise
+    # preserve the non-recurring classification: identifier order is not evidence
+    # that an unsettled credit is confirmed salary.
+    if len(roles) == 1 or len(deduped) < len(candidates) or _has_source_recency(deduped, sources):
+        return selected
+    return sorted((f for f in deduped if f.claim.value != "regular_salary"), key=lambda f: f.fact_id)[-1]
+
+
+def _select_relation(candidates, sources):
+    deduped = _dedupe_superseded(candidates)
+    if not deduped:
+        return None
+    selected = _select_metadata_with_source_recency(deduped, sources)
+    if selected is None:
+        return None
+    relations = {f.claim.relation for f in deduped}
+    # A superseding fact or same-source recency resolves identity; otherwise do
+    # not merge cash legs merely because a fact ID happened to sort last.
+    if len(relations) == 1 or len(deduped) < len(candidates) or _has_source_recency(deduped, sources):
+        return selected
+    independent = [f for f in deduped if f.claim.relation != "same_cash_occurrence"]
+    return sorted(independent, key=lambda f: f.fact_id)[-1] if independent else selected
+
+
 def normalize_events(data: FinancialInput, batch: FactBatch):
     if (batch.request_id, batch.user_id) != (data.request_id, data.user_id):
         raise ValueError("FactBatch identity differs from FinancialInput")
@@ -237,8 +297,9 @@ def normalize_events(data: FinancialInput, batch: FactBatch):
         if new_cash:
             role = new_cash[-1].income_kind
         roles = [f for f in active if isinstance(f.claim, IncomeRoleClaim)]
-        if roles:
-            role = sorted(roles, key=lambda f: (f.action in EXPLICIT_ACTIONS, f.fact_id))[-1].claim.value
+        selected_role = _select_income_role(roles, sources)
+        if selected_role is not None:
+            role = selected_role.claim.value
         if event.direction == "non_cash" or status == "unrealized":
             disposition, reason = "excluded", "NON_CASH"
         elif status in ("failed", "cancelled"):
@@ -276,14 +337,19 @@ def normalize_events(data: FinancialInput, batch: FactBatch):
         while parents[key] != key:
             key = parents[key]
         return key
-    relations = {}
+    relation_sets = {}
     for fact in usable:
         if isinstance(fact.target, EventTarget) and isinstance(fact.claim, RelationClaim):
             a, b = fact.target.event_id, fact.claim.other_event_id
             if b not in events:
                 issues.append(issue("UNKNOWN_RELATION_TARGET", "relation target missing", target=(a, b)))
                 continue
-            relations[frozenset((a, b))] = fact.claim.relation
+            relation_sets.setdefault(frozenset((a, b)), []).append(fact)
+    relations = {}
+    for key, group in relation_sets.items():
+        chosen = _select_relation(group, sources)
+        if chosen is not None:
+            relations[key] = chosen.claim.relation
     by_id = {r.event.event_id: r for r in result}
     for record in result:
         event = record.event

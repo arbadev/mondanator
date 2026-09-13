@@ -189,6 +189,14 @@ def infer_occurrences(data, resolved, facts, anchor, explicit, policy):
                and (r.event.direction == "debit" or r.income_role == "regular_salary")]
     history.sort(key=lambda r: (r.event.settlement_date, r.event.event_id))
     series_facts = [f for f in facts if f.scope == "series" or isinstance(f.target, SeriesTarget)]
+    # Resolve supersession in series contracts before scheduling so newer instructions dominate.
+    all_series_ids = {f.fact_id for f in series_facts}
+    superseded_series = {superseded
+                        for fact in series_facts
+                        for superseded in fact.supersedes_fact_ids
+                        if superseded in all_series_ids}
+    if superseded_series:
+        series_facts = [f for f in series_facts if f.fact_id not in superseded_series]
     groups = []
     assigned = set()
     descriptive = defaultdict(list)
@@ -318,6 +326,15 @@ def infer_occurrences(data, resolved, facts, anchor, explicit, policy):
                                         target=record.source_event_ids, severity="warning", impact="recurrence"))
             elif replaces and e.settlement_date and start <= e.settlement_date <= end and record.disposition in ("reserve", "future_cash"):
                 issues.append(issue("UNMATCHED_EXPLICIT_CYCLE", "explicit cash may overlap inference but its nominal cycle is not identified", target=record.source_event_ids, impact="recurrence"))
+        # Distinct resolved cash legs on the same historical cycle are distinct
+        # obligations.  Normalization has already merged only supported duplicate
+        # representations, so grouping by description must not collapse the
+        # remaining same-day legs into one future estimate.
+        historical_multiplicity = max(
+            (sum(1 for r in records if r.event.settlement_date == day and r.event.amount is not None)
+             for day in {r.event.settlement_date for r in records if r.event.settlement_date is not None}),
+            default=1,
+        )
         editable_ids = []
         for nominal in days:
             amount, cash_day, fact_ids, cancelled = _amount_for_cycle(base, records, sfacts, nominal, days[0], sources, issues, series_id)
@@ -339,7 +356,7 @@ def infer_occurrences(data, resolved, facts, anchor, explicit, policy):
                         replacement_amount, _ = _choose(r.event, corrections, "amount", sources)
                     if cancelled:
                         if old_occurrence.pending_reservation_id:
-                            issues.append(issue("COMMITTED_SERIES_CANCELLATION", "ending a series does not prove an existing held charge was released", target=r.source_event_ids))
+                            issues.append(issue("COMMITTED_SERIES_CANCELLATION", "ending a series does not prove an existing held charge is released", target=r.source_event_ids))
                         else:
                             occurrences.pop(oid, None)
                         continue
@@ -362,27 +379,33 @@ def infer_occurrences(data, resolved, facts, anchor, explicit, policy):
                 continue
             if cash_day < start or cash_day > end:
                 continue
-            try:
-                home_amount, fx_source = fx.convert(amount, data.profile.home_currency, cash_day, direction=first.direction)
-            except MoneyError as error:
-                issues.append(issue(error.code, str(error), target=(series_id,), severity="blocking" if first.direction == "debit" else "warning", impact="conversion"))
-                continue
-            covered = tuple(sorted("cash:" + r.canonical_cash_id for r in replacements if "cash:" + r.canonical_cash_id in occurrences))
-            total = home_amount.minor if group["category_stream"] else None
-            if covered:
-                for oid in covered:
-                    occurrences[oid] = replace(occurrences[oid], series_id=series_id, nominal_cycle_date=nominal, coverage="partial_budget")
-                home_amount = Money(home_amount.currency, max(0, home_amount.minor - sum(occurrences[oid].home_amount.minor for oid in covered)))
-            oid = f"{series_id}:cycle:{nominal}"
-            editable = first.direction == "debit" and first.currency == data.profile.home_currency
-            occurrences[oid] = Occurrence(oid, cash_day, home_amount, first.direction, series_id=series_id,
-                                          nominal_cycle_date=nominal, origin="inferred_periodic",
-                                          coverage="partial_budget" if group["category_stream"] else "complete_cycle",
-                                          native_amount=amount, fx_source_id=fx_source, source_event_ids=support,
-                                          fact_ids=fact_ids, evidence_ids=tuple(sorted({r.event.source.source_id for r in records})),
-                                          editable=editable, covered_occurrence_ids=covered, budget_total_minor=total)
-            if editable:
-                editable_ids.append(oid)
+            # `records` is historical support; each historical same-day leg
+            # establishes one conservative future obligation of the series base.
+            # Explicit future cash is handled through `replacements` above.
+            for ordinal in range(historical_multiplicity):
+                estimated = amount
+                try:
+                    home_amount, fx_source = fx.convert(estimated, data.profile.home_currency, cash_day, direction=first.direction)
+                except MoneyError as error:
+                    issues.append(issue(error.code, str(error), target=(series_id,), severity="blocking" if first.direction == "debit" else "warning", impact="conversion"))
+                    continue
+                covered = tuple(sorted("cash:" + r.canonical_cash_id for r in replacements if "cash:" + r.canonical_cash_id in occurrences))
+                total = home_amount.minor if group["category_stream"] else None
+                if covered:
+                    for oid in covered:
+                        occurrences[oid] = replace(occurrences[oid], series_id=series_id, nominal_cycle_date=nominal, coverage="partial_budget")
+                    home_amount = Money(home_amount.currency, max(0, home_amount.minor - sum(occurrences[oid].home_amount.minor for oid in covered)))
+                suffix = f":{ordinal}" if historical_multiplicity > 1 else ""
+                oid = f"{series_id}:cycle:{nominal}{suffix}"
+                editable = first.direction == "debit" and first.currency == data.profile.home_currency
+                occurrences[oid] = Occurrence(oid, cash_day, home_amount, first.direction, series_id=series_id,
+                                              nominal_cycle_date=nominal, origin="inferred_periodic",
+                                              coverage="partial_budget" if group["category_stream"] else "complete_cycle",
+                                              native_amount=estimated, fx_source_id=fx_source, source_event_ids=support,
+                                              fact_ids=fact_ids, evidence_ids=tuple(sorted({r.event.source.source_id for r in records})),
+                                              editable=editable, covered_occurrence_ids=covered, budget_total_minor=total)
+                if editable:
+                    editable_ids.append(oid)
         changes.extend(_targets(data, series, records, editable_ids))
 
     # Residual essential variable expenditure: observed-span max seven-day envelope.
