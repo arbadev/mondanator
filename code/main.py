@@ -1,4 +1,4 @@
-"""Read-only inspection or explicit cache-only development predictions."""
+"""Read-only inspection or explicit cache-only predictions."""
 from __future__ import annotations
 
 import argparse
@@ -14,18 +14,30 @@ def main(argv=None):
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--check-inputs", action="store_true", help="validate CSV/index/request joins without reading images, credentials or labels")
     mode.add_argument("--predict-cached", action="store_true", help="development-only predictions from validated cached evidence; no live client or final certification")
-    parser.add_argument("--cache", type=Path, help="explicit cache directory outside dataset, required for --predict-cached")
+    mode.add_argument("--extraction-mode", choices=("cache-only",),
+                      help="explicit extraction mode name; only cache-only is supported")
+    parser.add_argument("--cache", type=Path, help="explicit cache directory outside dataset, required for cache-only prediction modes")
     parser.add_argument("--run-root", type=Path, default=Path("evaluation/runs"))
-    parser.add_argument("--run-id", help="new immutable development run ID, required for --predict-cached")
+    parser.add_argument("--run-id", help="new immutable development run ID, required for cache-only prediction execution")
     parser.add_argument("--max-candidates", type=int, help="diagnostic cap; incomplete search cannot emit a prediction CSV")
+    parser.add_argument("--output", type=Path,
+                        help="optional external development CSV path for cache-only execution; never final certification")
     args = parser.parse_args(argv)
-    if args.predict_cached and (not args.run_id or args.cache is None):
-        parser.error("--predict-cached requires --run-id and --cache; there is no live/final-run mode")
+    using_cached = bool(args.predict_cached or args.extraction_mode)
+    if using_cached and (not args.run_id or args.cache is None):
+        parser.error("cache-only execution requires --run-id and --cache; there is no live/final-run mode")
     try:
-        if args.predict_cached:
+        if using_cached:
             from evaluation.cached_run import run_cached_predictions
-            result = run_cached_predictions(args.dataset, cache_root=args.cache, run_root=args.run_root,
-                                            run_id=args.run_id, max_candidates=args.max_candidates)
+            kwargs = {
+                "cache_root": args.cache,
+                "run_root": args.run_root,
+                "run_id": args.run_id,
+                "max_candidates": args.max_candidates,
+            }
+            if args.output is not None:
+                kwargs["output_path"] = args.output
+            result = run_cached_predictions(args.dataset, **kwargs)
             print(json.dumps(result, sort_keys=True, indent=2))
             return 0 if result["output_written"] else 3
         data = Dataset.load(args.dataset)

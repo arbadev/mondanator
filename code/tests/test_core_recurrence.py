@@ -1,6 +1,7 @@
 """Synthetic recurrence, fact-scope and expense-effect invariants."""
 from dataclasses import replace
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
+from itertools import permutations
 from decimal import Decimal
 from pathlib import Path
 import sys
@@ -10,8 +11,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from buy_wait.contracts import (
     AmountClaim, CalendarMonth, CancelClaim, DateClaim, EventTarget, EvidenceRef,
-    Fact, FactBatch, FinancialInput, FinancialProfile, ForecastPolicy, Payment,
-    RecurrenceClaim, ReduceTo, SeriesScaleClaim, SeriesTarget, StateClaim, Stop,
+    Fact, FactBatch, FinancialInput, FinancialProfile, ForecastPolicy, IncomeRoleClaim,
+    Payment, RecurrenceClaim, ReduceTo, RelationClaim, SeriesScaleClaim, SeriesTarget,
+    StateClaim, Stop,
 )
 from buy_wait.core import build_financial_context, replay_financial_plan
 from test_core_explicit import R, build, event, fact, money, source
@@ -26,6 +28,16 @@ def monthly(amounts=(100, 100, 100), *, direction="debit", category="rent", dom=
         if flexible:
             record = replace(record, flexibility="reducible_or_stoppable", minimum_allowed_amount=money(40))
         result.append(record)
+    return tuple(result)
+
+
+def double_monthly(amounts=(100, 100), *, direction="debit", category="rent", dom=15):
+    months = (date(2025, 11, dom), date(2025, 12, dom), date(2026, 1, dom))
+    result = []
+    for i, day in enumerate(months):
+        for suffix in ("a", "b"):
+            result.append(event(f"d{suffix}{i}", amounts[i % len(amounts)],
+                              (day - R).days, direction=direction, category=category, status="settled"))
     return tuple(result)
 
 
@@ -196,6 +208,67 @@ class RecurrenceTests(unittest.TestCase):
         core = build(history)
         self.assertIsNone(core.capacity.amount_safe_to_pay)
         self.assertIn("INSUFFICIENT_VARIABLE_HISTORY", core.capacity.issue_codes)
+
+    def test_series_restart_supersedes_prior_cancellation(self):
+        old = source("message:old")
+        new = source("message:new")
+        cancel = Fact("cancel", SeriesTarget("u", "utilities", "debit", "USD"),
+                      CancelClaim(), action="cancel", scope="series",
+                      evidence=(EvidenceRef(old.source_id),))
+        restart = Fact("start", SeriesTarget("u", "utilities", "debit", "USD"),
+                       RecurrenceClaim(CalendarMonth(15), money(100)), scope="series",
+                       evidence=(EvidenceRef(new.source_id),), action="start",
+                       effective_on=date(2026, 2, 1), supersedes_fact_ids=("cancel",))
+        for ordered in ("cancel", "start"), ("start", "cancel"):
+            with self.subTest(order=ordered):
+                label = {"cancel": cancel, "start": restart}
+                core = build(monthly(category="utilities"), facts=tuple(label[name] for name in ordered), sources=(old, new))
+                self.assertEqual(core.capacity.amount_safe_to_pay, money(400))
+                self.assertEqual(len(core.occurrences), 3)
+        future = source("message:future", known=datetime(2026, 2, 2, tzinfo=timezone.utc))
+        unavailable_restart = replace(restart, evidence=(EvidenceRef(future.source_id),))
+        core = build(monthly(category="utilities"), facts=(cancel, unavailable_restart), sources=(old, future))
+        cancellation_only = build(monthly(category="utilities"), facts=(cancel,), sources=(old,))
+        self.assertEqual(core.capacity.amount_safe_to_pay, cancellation_only.capacity.amount_safe_to_pay)
+        self.assertEqual(core.occurrences, cancellation_only.occurrences)
+        self.assertIn("FUTURE_EVIDENCE_EXCLUDED", core.capacity.issue_codes)
+
+    def test_multiple_obligations_in_same_cycle_are_preserved(self):
+        obligations = double_monthly((100, 100, 100), category="utilities", dom=5)
+        for ordered in (obligations, tuple(reversed(obligations))):
+            with self.subTest(order=tuple(e.event_id for e in ordered)):
+                core = build(ordered, requested=1000)
+                self.assertEqual(core.capacity.amount_safe_to_pay, money(100))
+                self.assertEqual(len(core.occurrences), 6)
+                self.assertEqual(sum(o.home_amount.minor for o in core.occurrences), 60000)
+
+    def test_compound_restart_obligations_income_and_pending_replay(self):
+        """Independent ledger: 2000 - 300 floor - 600 bills - 500 tuition - 200 holds."""
+        old, new = source("message:old"), source("message:new")
+        target = SeriesTarget("u", "utilities", "debit", "USD")
+        cancel = Fact("cancel", target, CancelClaim(), scope="series", action="cancel",
+                      evidence=(EvidenceRef(old.source_id),))
+        restart = Fact("restart", target, RecurrenceClaim(CalendarMonth(5), money(100)),
+                       scope="series", action="start", effective_on=R,
+                       supersedes_fact_ids=("cancel",), evidence=(EvidenceRef(new.source_id),))
+        salary = event("salary", 500, 4, direction="credit", status="scheduled", category="salary")
+        regular = Fact("regular", EventTarget("salary"), IncomeRoleClaim("regular_salary"),
+                       action="amend", evidence=(EvidenceRef(old.source_id),))
+        bonus = Fact("bonus", EventTarget("salary"), IncomeRoleClaim("one_off"), action="amend",
+                     supersedes_fact_ids=("regular",), evidence=(EvidenceRef(new.source_id),))
+        first, second = event("pending-a", 100, 2, status="pending"), event("pending-b", 100, 3, status="pending")
+        same = Fact("same", EventTarget("pending-b"), RelationClaim("pending-a", "same_cash_occurrence"),
+                    action="amend", evidence=(EvidenceRef(old.source_id),))
+        independent = Fact("independent", EventTarget("pending-b"), RelationClaim("pending-a", "independent_cash_leg"),
+                           action="amend", supersedes_fact_ids=("same",), evidence=(EvidenceRef(new.source_id),))
+        core = build((*double_monthly(category="utilities", dom=5), salary,
+                      event("tuition", 500, 9, status="scheduled", category="education"), first, second),
+                     balance=2000, requested=2000,
+                     facts=(cancel, restart, regular, bonus, same, independent), sources=(old, new))
+        self.assertEqual(core.capacity.amount_safe_to_pay, money(400))
+        self.assertEqual(len([o for o in core.occurrences if o.origin == "inferred_periodic"]), 6)
+        self.assertTrue(replay_financial_plan(core, (Payment(R, money(400), "safe"),)).safe)
+        self.assertFalse(replay_financial_plan(core, (Payment(R, money(401), "unsafe"),)).safe)
 
     def test_series_pending_income_state_remains_unspendable(self):
         src = source()

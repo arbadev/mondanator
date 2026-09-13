@@ -88,6 +88,30 @@ class CachedCliTests(IntegrationCase):
         self.assertEqual(self.cli("--predict-cached").returncode, 2)
         self.assertEqual(self.cli("--check-inputs").returncode, 0)
 
+    def test_submission_mode_writes_external_output_csv_without_affecting_cache_behavior(self):
+        output_path = self.work / "submission.csv"
+        result = self.cli("--predict-cached", "--cache", str(self.cache_root), "--run-root", str(self.run_root),
+                          "--run-id", "submission", "--output", str(output_path))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        summary = json.loads(result.stdout)
+        self.assertTrue(summary["output_written"])
+        self.assertTrue(output_path.is_file())
+        with output_path.open(newline="") as stream:
+            rows = list(csv.DictReader(stream))
+        self.assertEqual([row["request_id"] for row in rows], ["request_1", "request_2"])
+        directory = Path(summary["run_directory"])
+        self.assertTrue((directory / "predictions.csv").exists())
+        bad = self.cli("--predict-cached", "--cache", str(self.dataset), "--run-root", str(self.run_root), "--run-id", "bad", "--output", str(self.work / "bad-output.csv"))
+        self.assertEqual(bad.returncode, 2)
+        self.assertIn("cache/run artifacts", bad.stderr)
+
+    def test_cache_mode_with_extraction_mode_cli_alias_and_submission_output(self):
+        output_path = self.work / "alias-output.csv"
+        result = self.cli("--extraction-mode", "cache-only", "--cache", str(self.cache_root), "--run-root", str(self.run_root),
+                          "--run-id", "alias", "--output", str(output_path))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(output_path.exists())
+
     def test_cache_miss_keeps_partial_traces_but_no_partial_prediction_csv(self):
         self.message_fixture()
         result = self.cli("--predict-cached", "--cache", str(self.cache_root), "--run-root", str(self.run_root), "--run-id", "missing")
@@ -122,14 +146,18 @@ class CachedCliTests(IntegrationCase):
         self.assertFalse((self.dataset / "cache").exists())
         self.assertFalse((self.dataset / "runs").exists())
 
-    def test_production_route_never_reads_labels_template_credentials_or_dispatches(self):
+    def test_cache_only_external_output_never_reads_labels_template_credentials_or_dispatches(self):
         original = Path.read_bytes
+        output_path = self.work / "development-output.csv"
         def guarded(path):
             if path.name in ("sample_requests.csv", "output.csv", ".env"):
                 self.fail("forbidden production read")
             return original(path)
         with patch.object(Path, "read_bytes", guarded), patch.object(OpenRouterClient, "send", side_effect=AssertionError("dispatch")):
-            self.assertTrue(self.run_development()["output_written"])
+            result = self.run_development(output_path=output_path)
+        self.assertTrue(result["output_written"])
+        self.assertTrue(output_path.is_file())
+        self.assertFalse(result["final_certified"])
 
     def test_request_execution_error_is_sanitized_retained_and_prevents_export(self):
         def execute(data, req, **kwargs):
