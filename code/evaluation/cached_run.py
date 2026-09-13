@@ -1,4 +1,4 @@
-"""Immutable cache-only development prediction runs. Never a final release run."""
+"""Immutable cache-only prediction runs; output artifacts are not certification."""
 from __future__ import annotations
 
 import hashlib
@@ -47,7 +47,7 @@ def _code_hashes():
     return result
 
 
-def run_cached_predictions(dataset_root, *, cache_root, run_root, run_id, max_candidates=None):
+def run_cached_predictions(dataset_root, *, cache_root, run_root, run_id, max_candidates=None, output_path=None):
     """Write per-request traces, canonical usage and an all-or-nothing dev CSV.
 
     Existing run IDs, dataset destinations and overlapping cache/artifact trees
@@ -57,7 +57,7 @@ def run_cached_predictions(dataset_root, *, cache_root, run_root, run_id, max_ca
     No public expected answers, credential lookup or network dispatch occurs.
     """
     return _run_cached(dataset_root, cache_root=cache_root, run_root=run_root, run_id=run_id,
-                       max_candidates=max_candidates, public_preflight=False)
+                       max_candidates=max_candidates, public_preflight=False, output_path=output_path)
 
 
 def run_public_preflight(dataset_root, *, run_root, run_id, max_candidates=64):
@@ -70,7 +70,7 @@ def run_public_preflight(dataset_root, *, run_root, run_id, max_candidates=64):
                        run_root=run_root, run_id=run_id, max_candidates=max_candidates, public_preflight=True)
 
 
-def _run_cached(dataset_root, *, cache_root, run_root, run_id, max_candidates, public_preflight):
+def _run_cached(dataset_root, *, cache_root, run_root, run_id, max_candidates, public_preflight, output_path=None):
     if not isinstance(run_id, str) or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,79}", run_id) is None:
         raise DataError("invalid development run ID")
     if max_candidates is not None and (type(max_candidates) is not int or max_candidates < 1):
@@ -179,8 +179,11 @@ def _run_cached(dataset_root, *, cache_root, run_root, run_id, max_candidates, p
         failures.append({"code": "FRESH_CACHE_PREFLIGHT_USED_UNEXPECTED_CACHE_DATA"})
     output_hash = None
     if not public_preflight and not failures and len(rows) == len(requests):
-        write_output(directory / "predictions.csv", rows, requests, dataset_root=dataset_root)
-        output_hash = hashlib.sha256((directory / "predictions.csv").read_bytes()).hexdigest()
+        destination = output_path or (directory / "predictions.csv")
+        write_output(destination, rows, requests, dataset_root=dataset_root)
+        output_hash = hashlib.sha256(destination.read_bytes()).hexdigest()
+        if destination != directory / "predictions.csv":
+            write_output(directory / "predictions.csv", rows, requests, dataset_root=dataset_root)
     if accounting is not None:
         _bytes(directory / "usage_report.md", render_usage_report(accounting, output_sha256=output_hash).encode())
     else:
