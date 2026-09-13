@@ -2,6 +2,7 @@
 from dataclasses import FrozenInstanceError, replace
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, localcontext
+from itertools import permutations
 from pathlib import Path
 import sys
 import unittest
@@ -11,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from buy_wait.contracts import (
     AmountCandidate, AmountClaim, CancelClaim, ChangeTarget, DateClaim, EvidenceIssue,
     EvidenceRef, EventRecord, EventTarget, Fact, FactBatch, FinancialInput,
-    FinancialProfile, ForecastPolicy, FxRate, Money, Payment, ReduceTo,
+    FinancialProfile, ForecastPolicy, FxRate, IncomeRoleClaim, Money, Payment, ReduceTo,
     RelationClaim, SourceRef, StateClaim, Stop, canonical_data,
 )
 from buy_wait.core import build_financial_context, compute_capacity, replay_financial_plan
@@ -320,6 +321,38 @@ class FactCompatibilityTests(unittest.TestCase):
                      facts=(relation,), sources=(src,), requested=900)
         self.assertEqual(len(core.resolved_events), 2)
         self.assertEqual(core.capacity.amount_safe_to_pay, money(600))
+
+    def test_latest_income_role_claim_overrides_older_salary_classification(self):
+        old = source("message:old", known=datetime(2026, 1, 15, tzinfo=timezone.utc))
+        new = source("message:new", known=datetime(2026, 1, 31, tzinfo=timezone.utc))
+        regular = Fact("z-regular", EventTarget("salary"), IncomeRoleClaim("regular_salary"),
+                      evidence=(EvidenceRef(old.source_id),), action="amend")
+        one_off = Fact("a-one-off", EventTarget("salary"), IncomeRoleClaim("one_off"),
+                      evidence=(EvidenceRef(new.source_id),), action="amend", supersedes_fact_ids=("z-regular",))
+        flows = (event("salary", 500, 1, direction="credit", status="scheduled", category="salary"),
+                 event("tuition", 500, 9, status="scheduled", category="education"))
+        for ordered in ("regular", "one_off"), ("one_off", "regular"):
+            with self.subTest(order=ordered):
+                labeled = {"regular": regular, "one_off": one_off}
+                core = build(flows, balance=900, requested=600, facts=tuple(labeled[name] for name in ordered),
+                             sources=(old, new))
+                self.assertEqual(core.capacity.amount_safe_to_pay, money(100))
+
+    def test_conflicting_relation_supersedes_still_keep_separate_cash_legs(self):
+        old = source("message:old", known=datetime(2026, 1, 15, tzinfo=timezone.utc))
+        new = source("message:new", known=datetime(2026, 1, 31, tzinfo=timezone.utc))
+        same = Fact("same", EventTarget("bill2"), RelationClaim("bill1", "same_cash_occurrence"),
+                    evidence=(EvidenceRef(old.source_id),), action="amend")
+        independent = Fact("independent", EventTarget("bill2"), RelationClaim("bill1", "independent_cash_leg"),
+                          evidence=(EvidenceRef(new.source_id),), action="amend",
+                          supersedes_fact_ids=("same",))
+        events = (event("bill1", 300, 1, status="pending"), event("bill2", 300, 2, status="pending"))
+        for ordered in permutations(("same", "independent")):
+            with self.subTest(order=ordered):
+                labeled = {"same": same, "independent": independent}
+                core = build(events, balance=1000, requested=600,
+                             facts=tuple(labeled[name] for name in ordered), sources=(old, new))
+                self.assertEqual(core.capacity.amount_safe_to_pay, money(100))
 
     def test_event_row_order_is_irrelevant(self):
         a, b = event("a", 600, 1), event("b", 700, 2, direction="credit", category="salary")
