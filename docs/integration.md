@@ -95,6 +95,16 @@ These are reported review cases, not independently reproduced/fixed by integrati
 
 The same review lists stale setup/docs on the evidence branch and the POSIX/fcntl limit. Integration's agreed Python3.13 exact-pin setup and docs have already been implemented/locally installed and tested here; that does not claim the evidence pipeline's findings are closed. Native Windows remains unsupported. Continue deterministic runner/accounting tests without a new model-driven loop or paid calls.
 
+### Evidence CI and independent-axis follow-up (inbox021)
+
+Firstmate distinguishes the evidence PR https://github.com/arbadev/mondanator/pull/3 from the separate core CI gap. Published **606628bac2d7f857af36c9181276e806184ae777** passed **191 actual Ubuntu/Python3.13 CI tests** (Actions34726494358, Medium recorded risk), but report§19 reproduced a remaining defect at that exact synchronized head: an approval-only amendment erases `OUTSTANDING_OBLIGATION_UNSCHEDULED` on a failed USD100 debit, changing unsupported capacity to USD900 without settlement/cancellation. CI-green did not make that head merge-ready or authorize integration to import it.
+
+`metadata-followup-decision.md` authorizes the smallest existing-normalizer correction with independent approval/obligation precedence, preserved cash/source/time semantics and failing-before/passing-after controls, followed by full validation of the changed head. This is accepted engineering intent, not a new captain question or permission to cancel a live gate. The completion helper's key transfer did **not** answer the separate paid-smoke hold.
+
+**Additional source report observed while handling021, not import authority:** evidence report§§21–22 now records correction545b28e97815c4276b4c6bfd51bdd36a5aaa7226 and published follow-up **c17e959deb9ea46397993f276066dacf0f8e581a**, including six new tests and **197 passing Ubuntu/Python3.13 CI tests** (Actions34728223748; run01M2C2KA3Y78CKRXDJX33V0HET; Low recorded risk). The exact outstanding/approval defect and a separately varied recency case are reported fixed; the recency case was a hypothesis at the original191-test boundary, not already reproduced then. A pre-existing host-only `metadata-axis-ignores-supersession` caveat is retained as info/no-op; the evidence adapter does not emit those supersession IDs. These are owner-reported CI/regression facts, not integration imports or independent tests here.
+
+This checkout still uses its expressly routed older evidence/core snapshots; neither606628ba nor545b28e/c17e959d is implicitly authorized. Await Firstmate's concrete immutable correction routing and a clean custody-safe import checkpoint. The existing paid hold, unresolved options choice, final-run gates and individual merge approvals remain unchanged. No final certification follows from either CI result.
+
 ### Open planning review limitations (inbox017)
 
 Review `01M2BYWJQ9QNW24YXGHCYR0TBC` at the owner's corrected-core branch head `3b81413067d0fdf8839920ea173bc864de87e5bf` identifies four still-open findings. It does **not** authorize importing that head or choosing a new policy:
