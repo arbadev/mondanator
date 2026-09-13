@@ -69,31 +69,31 @@ def populate_cache(dataset_root, *, cache_root, receipt_path, run_id: str,
     receipt_path = _outside_dataset(Path(receipt_path), dataset_root, label="receipt ledger")
     if receipt_path.is_relative_to(cache_root) or cache_root.is_relative_to(receipt_path):
         raise DataError("cache and receipt ledger must be separate")
-    if client is None:
-        key = load_api_key(os.environ if environ is None else environ)
-        client = OpenRouterClient(api_key=key, live_enabled=True)
-    elif not client.live_enabled:
+    if client is not None and not client.live_enabled:
         raise DataError("injected extraction client must be explicitly live-enabled")
 
     data = Dataset.load(dataset_root)
     requests, _ = load_requests(dataset_root)
+    prepared = []
+    for request in requests:
+        raw = project_request(request)
+        financial = data.financial_input_for(raw)
+        descriptors = event_descriptors({event.event_id: event for event in financial.events}, user_id=financial.user_id)
+        selection = EvidenceIndex.from_context(data.context_for(raw)).retrieve(
+            user_id=financial.user_id, request_id=financial.request_id,
+            event_ids=tuple(descriptors), as_of=financial.request_date,
+        )
+        prepared.append((financial, descriptors, selection))
+
     usage = JsonlUsageSink(receipt_path, run_id=run_id)
+    if client is None:
+        key = load_api_key(os.environ if environ is None else environ)
+        client = OpenRouterClient(api_key=key, live_enabled=True)
     cache = ExtractionCache(cache_root)
     extractor = Extractor(cache=cache, usage=usage, run_id=run_id, client=client,
                           config=ExtractorConfig(), budget=RunBudget(max_calls=max_calls, max_cost=max_cost))
     seen, origins, outcomes, issues = set(), [], Counter(), Counter()
-    for request in requests:
-        raw = project_request(request)
-        financial = data.financial_input_for(raw)
-        try:
-            descriptors = event_descriptors({event.event_id: event for event in financial.events}, user_id=financial.user_id)
-            selection = EvidenceIndex.from_context(data.context_for(raw)).retrieve(
-                user_id=financial.user_id, request_id=financial.request_id,
-                event_ids=tuple(descriptors), as_of=financial.request_date,
-            )
-        except EvidenceError as exc:
-            issues[exc.code] += 1
-            continue
+    for financial, descriptors, selection in prepared:
         for source in selection.sources:
             # Each source is extracted once per source+context cache key. The
             # existing cache lock provides producer deduplication; receipts retain

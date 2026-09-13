@@ -5,7 +5,7 @@ import io
 import json
 from contextlib import redirect_stderr
 from decimal import Decimal
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import httpx
 
@@ -129,17 +129,32 @@ class PopulateExtractionCacheTests(IntegrationCase):
         self.receipts.write_text("")
         for receipts, error in ((self.receipts, "FileExistsError"),
                                 (self.work / "missing" / "receipts.jsonl", "FileNotFoundError")):
-            client = Mock()
             with self.subTest(error=error), \
-                 patch("populate_extraction_cache.load_api_key", return_value="synthetic-only"), \
-                 patch("populate_extraction_cache.OpenRouterClient", return_value=client):
+                 patch("populate_extraction_cache.load_api_key", side_effect=AssertionError("key read")) as key, \
+                 patch("populate_extraction_cache.OpenRouterClient", side_effect=AssertionError("client")) as client:
                 self.receipts = receipts
                 code, stderr = self.cli("--live", "--account-logging-verified", "--authenticated-availability-verified")
             self.assertEqual(code, 2)
             self.assertIn(f"cache population failed: {error}", stderr)
             self.assertNotIn("Traceback", stderr)
             self.assertFalse(self.cache.exists())
-            client.send.assert_not_called()
+            key.assert_not_called()
+            client.assert_not_called()
+        self.assertEqual(self.work.joinpath("receipts.jsonl").read_text(), "")
+
+    def test_invalid_later_request_fails_before_key_read_receipt_or_dispatch(self):
+        options = [row for row in self.tables["request_payment_options.csv"] if row["payment_option_id"] != "option_2_2"]
+        write_csv(self.dataset / "request_payment_options.csv", SCHEMAS["request_payment_options.csv"], options)
+        with patch("populate_extraction_cache.load_api_key", side_effect=AssertionError("key read")) as key:
+            with self.assertRaises(DataError):
+                populate_cache(self.dataset, **self.live_kwargs())
+            code, stderr = self.cli("--live", "--account-logging-verified", "--authenticated-availability-verified")
+        self.assertEqual(code, 2)
+        self.assertIn("cache population failed: DataError", stderr)
+        key.assert_not_called()
+        self.assertEqual(self.calls, [])
+        self.assertFalse(self.receipts.exists())
+        self.assertFalse(self.cache.exists())
 
     def test_midrun_cache_io_error_is_counted_without_path_and_summary_is_kept(self):
         real_locked, seen = ExtractionCache.locked, []
