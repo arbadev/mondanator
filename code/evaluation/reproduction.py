@@ -1,7 +1,9 @@
 """Verify immutable development artifact identities, not financial certification."""
 from __future__ import annotations
 
+import gzip
 import hashlib
+import io
 import json
 import re
 from pathlib import Path
@@ -13,6 +15,7 @@ _FIXED = {"trace_index.json", "candidate_rows.json", "origin_usage.json", "usage
           "usage_report.md", "failures.json", "coverage.json", "preflight_requests.json", "predictions.csv"}
 _REQUIRED = _FIXED - {"predictions.csv", "usage_summary.json"}
 _HASH = re.compile(r"[0-9a-f]{64}\Z")
+_TRACE_UNCOMPRESSED_LIMIT = 256 * 1024 * 1024
 
 
 def _read(root, name):
@@ -40,6 +43,19 @@ def _json(payload):
         raise DataError("invalid artifact JSON") from exc
 
 
+def _trace_json(name, payload):
+    if not name.endswith(".json.gz"):
+        return _json(payload)
+    try:
+        with gzip.GzipFile(fileobj=io.BytesIO(payload)) as stream:
+            decoded = stream.read(_TRACE_UNCOMPRESSED_LIMIT + 1)
+    except (OSError, EOFError) as exc:
+        raise DataError("invalid compressed trace artifact") from exc
+    if len(decoded) > _TRACE_UNCOMPRESSED_LIMIT:
+        raise DataError("compressed trace exceeds expansion limit")
+    return _json(decoded)
+
+
 def verify_development_run(directory, *, dataset_root=None, expected_manifest_sha256=None):
     """Check complete inventory, trusted optional manifest pin, inputs and hashes.
 
@@ -61,7 +77,7 @@ def verify_development_run(directory, *, dataset_root=None, expected_manifest_sh
         raise DataError("incomplete development artifact inventory")
     # Validate ALL paths before opening any named member. No .env/private reads.
     for name, digest in members.items():
-        if (not isinstance(name, str) or name not in _FIXED and re.fullmatch(r"(?:traces|audits)/[0-9]{6,}\.json", name) is None
+        if (not isinstance(name, str) or name not in _FIXED and re.fullmatch(r"(?:traces|audits)/[0-9]{6,}\.json(?:\.gz)?", name) is None
                 or not isinstance(digest, str) or not _HASH.fullmatch(digest)):
             raise DataError("unsafe development artifact inventory")
     actual = set()
@@ -99,7 +115,7 @@ def verify_development_run(directory, *, dataset_root=None, expected_manifest_sh
         if name is not None:
             if name not in contents or not name.startswith("traces/"):
                 raise DataError("unlisted trace reference")
-            trace = _json(contents[name])
+            trace = _trace_json(name, contents[name])
             if trace.get("request", {}).get("request_id") != entry["request_id"]:
                 raise DataError("trace/request identity mismatch")
     if dataset_root is not None:

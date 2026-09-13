@@ -1,6 +1,7 @@
 """Immutable cache-only prediction runs; output artifacts are not certification."""
 from __future__ import annotations
 
+import gzip
 import hashlib
 import json
 import os
@@ -33,6 +34,25 @@ def _bytes(path, payload):
 
 def _json(path, value):
     _bytes(path, (json.dumps(value, sort_keys=True, ensure_ascii=True, indent=2, allow_nan=False) + "\n").encode())
+
+
+def _trace_json(path, value):
+    """Persist a complete trace under the verifier's bounded member limit.
+
+    A compressed trace keeps every financial fact, candidate and search record;
+    it is never a truncated replacement.  Compression is deterministic so its
+    hash remains useful in the immutable run manifest.
+    """
+    payload = (json.dumps(value, sort_keys=True, ensure_ascii=True, indent=2, allow_nan=False) + "\n").encode()
+    if len(payload) <= _MAX_ARTIFACT_BYTES:
+        _bytes(path, payload)
+        return Path(path)
+    compressed = gzip.compress(payload, mtime=0)
+    if len(compressed) > _MAX_ARTIFACT_BYTES:
+        raise DataError("development trace exceeds compressed size limit")
+    destination = Path(str(path) + ".gz")
+    _bytes(destination, compressed)
+    return destination
 
 
 def _code_hashes():
@@ -123,7 +143,8 @@ def _run_cached(dataset_root, *, cache_root, run_root, run_id, max_candidates, p
             for source in trace["evidence"]["sources"]:
                 origins.extend(source["origin_usage"])
                 cache_references.append({key: source[key] for key in ("source_id", "cache_key", "content_sha256", "row_sha256")})
-            _json(directory / relative, trace_wire(trace))
+            trace_path = _trace_json(directory / relative, trace_wire(trace))
+            trace_relative = trace_path.relative_to(directory).as_posix()
             audit = audit_decision(data, request, trace, dataset_root=dataset_root, max_candidates=max_candidates)
             _json(directory / f"audits/{ordinal:06d}.json", c.canonical_data(audit))
             if not audit["integrity_passed"]:
@@ -150,13 +171,16 @@ def _run_cached(dataset_root, *, cache_root, run_root, run_id, max_candidates, p
                                  "ranking_issues": trace["ranking"]["issues"]})
             else:
                 rows.append(trace["row"])
-            index.append({"request_id": request["request_id"], "trace": relative,
+            index.append({"request_id": request["request_id"], "trace": trace_relative,
                           "row_available": trace["row"] is not None, "core_hash": trace["core"].context_hash,
                           "envelope_hash": trace["envelope"].context_hash, "facts_sha256": c.canonical_hash(trace["facts"])})
         except Exception as exc:
             # Keep the request denominator and error class, not a sensitive repr.
             failures.append({"request_id": request["request_id"], "code": "DECISION_EXECUTION_FAILED", "exception_type": type(exc).__name__})
-            index.append({"request_id": request["request_id"], "trace": relative if (directory / relative).exists() else None,
+            trace_path = directory / relative
+            compressed_trace_path = Path(str(trace_path) + ".gz")
+            index.append({"request_id": request["request_id"],
+                          "trace": relative if trace_path.exists() else compressed_trace_path.relative_to(directory).as_posix() if compressed_trace_path.exists() else None,
                           "row_available": False})
             diagnostics.append({"request_id": request["request_id"], "execution": "failed", "exception_type": type(exc).__name__})
     _json(directory / "trace_index.json", index)

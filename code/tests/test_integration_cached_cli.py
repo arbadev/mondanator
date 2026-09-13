@@ -2,6 +2,7 @@
 import csv
 import hashlib
 import json
+import secrets
 import subprocess
 import sys
 from decimal import Decimal
@@ -16,6 +17,7 @@ from buy_wait.evidence import EvidenceIndex, ExtractionCache, Extractor, MemoryU
 from buy_wait.evidence.adapter import event_descriptors
 from buy_wait.runner import decide_cached
 from evaluation.cached_run import run_cached_predictions
+from evaluation.reproduction import verify_development_run
 from evaluation.package import usage_identity
 from evaluation.usage import AccountingError
 from test_evidence_client_cache_usage import success
@@ -159,9 +161,22 @@ class CachedCliTests(IntegrationCase):
         self.assertTrue(output_path.is_file())
         self.assertFalse(result["final_certified"])
 
-    def test_oversized_trace_becomes_a_sanitized_request_failure_without_partial_file(self):
+    def test_oversized_trace_is_compressed_without_losing_reproducibility(self):
+        from buy_wait.runner import trace_wire
+        def enlarged(trace):
+            return {**trace_wire(trace), "nonfinancial_padding": "x" * (513 * 1024)}
+        with patch("evaluation.cached_run._MAX_ARTIFACT_BYTES", 512 * 1024), \
+             patch("evaluation.cached_run.trace_wire", side_effect=enlarged):
+            result = self.run_development()
+        self.assertTrue(result["output_written"])
+        directory = self.run_root / "dev"
+        self.assertTrue(any(path.suffix == ".gz" for path in (directory / "traces").iterdir()))
+        verified = verify_development_run(directory, dataset_root=self.dataset)
+        self.assertTrue(verified["artifact_integrity_verified"])
+
+    def test_uncompressible_oversized_trace_becomes_a_sanitized_request_failure(self):
         with patch("evaluation.cached_run._MAX_ARTIFACT_BYTES", 16 * 1024), \
-             patch("evaluation.cached_run.trace_wire", return_value={"payload": "x" * (17 * 1024)}):
+             patch("evaluation.cached_run.trace_wire", return_value={"payload": secrets.token_hex(17 * 1024)}):
             result = self.run_development()
         self.assertFalse(result["output_written"])
         directory = self.run_root / "dev"
