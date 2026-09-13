@@ -200,22 +200,27 @@ def normalize_events(data: FinancialInput, batch: FactBatch):
         event = replace(event, amount=amount, status=status)
         approval = "unknown"
         obligation = "unknown"
-        metadata_facts = [f for f in active if isinstance(f.claim, StateClaim)
-                          and (f.claim.approval_state != "unknown" or f.claim.obligation_state != "unknown")]
-        explicit_metadata = [f for f in metadata_facts if f.action in EXPLICIT_ACTIONS or f.supersedes_fact_ids]
-        metadata_facts = explicit_metadata or metadata_facts
-        metadata_times = [_actor_time(f, sources) for f in metadata_facts]
-        if (metadata_times and len({a for a, _ in metadata_times}) == 1
-                and all(a is not None and t is not None for a, t in metadata_times)):
-            latest_time = max(t for _, t in metadata_times)
-            metadata_facts = [f for f, (_, t) in zip(metadata_facts, metadata_times) if t == latest_time]
-        state_observations = [f.claim for f in metadata_facts]
+        # Precedence belongs to the observed axis: an approval update cannot
+        # supersede an obligation merely because its action/time ranks higher.
+        metadata_facts = {}
+        for axis in ("approval_state", "obligation_state"):
+            candidates = [f for f in active if isinstance(f.claim, StateClaim)
+                          and getattr(f.claim, axis) != "unknown"]
+            explicit_metadata = [f for f in candidates if f.action in EXPLICIT_ACTIONS or f.supersedes_fact_ids]
+            chosen = explicit_metadata or candidates
+            metadata_times = [_actor_time(f, sources) for f in chosen]
+            if (metadata_times and len({a for a, _ in metadata_times}) == 1
+                    and all(a is not None and t is not None for a, t in metadata_times)):
+                latest_time = max(t for _, t in metadata_times)
+                chosen = [f for f, (_, t) in zip(chosen, metadata_times) if t == latest_time]
+            metadata_facts[axis] = chosen
+        state_observations = [f.claim for f in metadata_facts["obligation_state"]]
         # Outstanding/disputed obligation survives a failed cash attempt (I011 C3).
         if any(c.obligation_state in ("outstanding", "disputed") for c in state_observations):
             obligation = "outstanding" if any(c.obligation_state == "outstanding" for c in state_observations) else "disputed"
         elif any(c.obligation_state == "closed" for c in state_observations):
             obligation = "closed"
-        approvals = {c.approval_state for c in state_observations}
+        approvals = {f.claim.approval_state for f in metadata_facts["approval_state"]}
         if "conditional" in approvals:
             approval = "conditional"
         elif "unconfirmed" in approvals:
@@ -259,7 +264,7 @@ def normalize_events(data: FinancialInput, batch: FactBatch):
             disposition, reason = "future_cash", "CONFIRMED_SALARY" if event.direction == "credit" else "SCHEDULED_DEBIT"
         else:
             disposition, reason = "unresolved", "UNSUPPORTED_CASH_STATE"
-        metadata_ids = (f.fact_id for f in metadata_facts if f.claim.value is None)
+        metadata_ids = (f.fact_id for chosen in metadata_facts.values() for f in chosen)
         ids = tuple(sorted(set((*date_ids, *amount_ids, *state_ids, *metadata_ids, *(f.fact_id for f in roles)))))
         evidence_ids = tuple(sorted({event.source.source_id, *(e.source_id for f in (*active, *monetary) for e in f.evidence)}))
         result.append(ResolvedEvent(event.event_id, (event.event_id,), event, disposition, reason, ids,
