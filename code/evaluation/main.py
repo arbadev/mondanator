@@ -1,4 +1,4 @@
-"""Inspect public fixtures or compare an already-produced development CSV."""
+"""Inspect fixtures, run fresh-cache input-only preflight, or compare a dev CSV."""
 from __future__ import annotations
 
 import argparse
@@ -37,13 +37,21 @@ def read_predictions(path):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dataset", type=Path, default=Path(__file__).resolve().parents[2] / "dataset")
-    parser.add_argument("--predictions", type=Path, help="existing public-sample predictions; never evaluation labels")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--predictions", type=Path, help="existing public-sample predictions; never evaluation labels")
+    mode.add_argument("--preflight-public", action="store_true", help="fresh-cache public INPUTS only; no accuracy, seeding, live call or prediction CSV")
+    parser.add_argument("--max-candidates", type=int, default=64, help="preflight diagnostic cap per phase; incompleteness remains explicit")
     parser.add_argument("--run-root", type=Path, default=Path("evaluation/runs"))
     parser.add_argument("--run-id", help="new immutable development run ID, required with predictions")
     args = parser.parse_args(argv)
-    if args.predictions and not args.run_id:
-        parser.error("--run-id is required with --predictions")
+    if (args.predictions or args.preflight_public) and not args.run_id:
+        parser.error("--run-id is required with --predictions or --preflight-public")
     try:
+        if args.preflight_public:
+            from evaluation.cached_run import run_public_preflight
+            result = run_public_preflight(args.dataset, run_root=args.run_root, run_id=args.run_id, max_candidates=args.max_candidates)
+            print(json.dumps(result, sort_keys=True, indent=2))
+            return 0 if result["preflight_complete"] else 3
         data = Dataset.load(args.dataset)
         requests, expected, sample_hash = load_sample_fixtures(args.dataset)
         for request in requests:
@@ -64,7 +72,7 @@ def main(argv=None):
         })
         print(json.dumps({"run_directory": str(directory), "metrics": result["metrics"]}, sort_keys=True, indent=2))
         return 0
-    except (DataError, OSError, UnicodeError, csv.Error) as exc:
+    except (ValueError, OSError, UnicodeError, csv.Error) as exc:
         parser.exit(2, f"evaluation failed: {str(exc) if isinstance(exc, DataError) else type(exc).__name__}\n")
 
 
