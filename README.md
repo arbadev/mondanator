@@ -27,14 +27,9 @@ git clone https://github.com/arbadev/mondanator.git
 cd mondanator
 ```
 
-This checkpoint requires Python **3.10+**; the tested baseline is Python **3.13** with the exact pins in `requirements.txt` (`pydantic==2.13.5`, `httpx==0.28.1`, `Pillow==12.3.0`). CI runs the offline tests on Python 3.13. The evidence cache uses POSIX `fcntl` locking, so macOS/Linux are the supported platforms; Windows is not supported. See [`docs/integration.md`](docs/integration.md) for exact module boundaries and remaining dependencies. This checkpoint is **not a complete financial agent**.
+The target runtime requires **Python 3.10+**; **Python 3.13** is recommended. `requirements.txt` pins Pydantic2.13.5, HTTPX0.28.1 and Pillow12.3.0. The existing isolated Python3.13.15 environment installed these exact direct pins and passed `pip check`; this is not a transitive lock. The complete authorized corrected-evidence chain through source **c17e959deb9ea46397993f276066dacf0f8e581a** is now integrated at **11851ddec421fe17c5c26c238e5fe4fe82dec5d3**, with the reviewed core repairs preserved. **352 offline tests pass**, including actual CSV→mocked evidence→core/planning seams, six independent metadata-precedence regressions, runner/accounting/CLI and audit/preflight/reproduction tests. Python3.10 remains an unverified compatibility target; CI uses the tested Python3.13 baseline. Remote integration CI and the separately reported core delivery gap are not resolved by these local tests.
 
-Install the pinned dependencies into a virtual environment:
-
-```bash
-python3.13 -m venv .venv
-.venv/bin/python -m pip install -r requirements.txt
-```
+The runner, durable canonical usage accounting, cache-only development CLI, consumer recomposition/source-identity/actual-plan replay audits and synthetic extracted-application reproduction are tested capabilities. Semantic grounding, full-evidence sample decisions, corrected planning dependencies, final-run mode/accounting and clean final installation/reproduction remain incomplete. The preserved344-test checkpoint3f99818448630eceee765528bfa39a752e35f54b and its25-input fresh-cache preflights predate this import:21 unresolved, no prediction CSV, no accuracy claim and0 dispatches. They were not rerun or overwritten here. The intermediate220338ee/606628ba metadata defect is not a certified checkpoint; tests ran only after the complete correction. Paid/live extraction, final release and individual merges still require their existing authority. See [`docs/integration.md`](docs/integration.md) for provenance and limits. This checkpoint is **not a complete financial agent**.
 
 Your solution must:
 
@@ -42,19 +37,40 @@ Your solution must:
 - Generate one prediction for every request
 - Write the final predictions to `output.csv` in the repository root
 
-Run the available **read-only** checks and offline behavioral tests:
+Create an isolated environment, then run the available **read-only** checks and offline behavioral tests (no credentials or live-model calls are needed):
 
 ```bash
+python3.13 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+. .venv/bin/activate
 .venv/bin/python code/main.py --dataset dataset --check-inputs
 .venv/bin/python code/evaluation/main.py --dataset dataset
-.venv/bin/python -m unittest discover -s code/tests -p 'test_*.py' -v
+PYTHONPATH=code PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m unittest discover -s code/tests -p 'test_*.py' -v
 ```
 
-The offline tests use synthetic/public fixtures and a mocked HTTP transport; they make no model calls and read no API key or `.env`.
+The evidence cache currently requires **POSIX/fcntl (Linux/macOS)**. Native Windows cache support is not implemented or verified; use a Linux/WSL environment with the POSIX commands above for the combined application. Dependency installation may access the package index; the tests themselves use synthetic/public fixtures and mocked HTTP, make no live model calls and read no API key or `.env`. Pins are direct dependencies, not a complete transitive lock.
 
-The offline evidence module (`code/buy_wait/evidence`) delivers source selection, image checks, the private extraction schema, the single FactBatch adapter, a cache-only replay path and UsageEvent accounting. Live OpenRouter inference, measured model quality, final-run usage reporting and final output remain unverified and unauthorized at this checkpoint.
+The evidence module supplies source selection/image checks/private schema, the sole FactBatch adapter and cache/client/UsageEvent boundaries consumed by the runner and durable accounting below. Live extraction/model quality, actual final-run accounting and final output remain unverified and unauthorized at this checkpoint.
 
-Neither inspection command generates predictions, performs extraction, reads credentials or certifies financial safety. The sample inspector checks all 25 fixtures with expected fields separated. The final inference CLI, usage aggregation, package construction and clean reproduction will be connected only after committed financial/evidence/planning dependencies and the required correctness/freeze/run authority; `code/main.py` without `--check-inputs` deliberately exits nonzero instead of inventing output.
+Neither inspection command generates predictions, performs extraction, reads credentials or certifies financial safety. The sample inspector checks all 25 fixtures with expected fields separated. There is no implicit or live prediction mode; `code/main.py` without an explicit mode exits nonzero. Final-run execution, accounting artifacts, package preparation and clean application reproduction still require corrected dependencies and the required correctness/freeze/run authority.
+
+The **cache-only development CLI** below is a tested capability, not authority to generate evaluation predictions. Use only an authorized development fixture and validated evidence cache at this checkpoint:
+
+```bash
+python code/main.py --dataset /path/to/development-fixture --predict-cached \
+  --cache /path/to/validated-cache --run-root evaluation/runs --run-id dev-cache-001
+```
+
+This creates one exclusive run directory containing native decision traces, canonical usage JSONL, consumed origin receipts, accounting/report files and a hash manifest. It writes that directory's `predictions.csv` only when **every request resolves, consumer audit checks pass and accounting is complete**; otherwise it retains diagnostics, writes no prediction CSV and exits3. There is no guessed zero/default row, partial-denominator success, live client, key lookup or root `output.csv` export. Cache misses, incomplete search and unknown accounting stay explicit. An existing run ID is never overwritten. All manifests/report text are marked development, never final-certified.
+
+For a **public-input-only preflight**, use a new ID. This creates a separate exclusive empty cache, runs all inputs without expected answers, retains traces/audits/usage and never writes a prediction CSV or measures accuracy:
+
+```bash
+python code/evaluation/main.py --dataset dataset --preflight-public \
+  --run-root evaluation/runs --run-id public-preflight-NEW-ID --max-candidates 64
+```
+
+Exit0 means the preflight completed, **not that purchases are affordable**. Inspect `coverage.json` for unresolved requests, cache misses, source issues and actually checked audit dimensions. The retained authorized preflight covered25/25 inputs:22 cache misses (17 messages/5 images) across19 requests,21 unresolved,4 ungraded diagnostic rows,0 dispatches and no prediction CSV. The cap is diagnostic, not a complete-search waiver. Source-byte identity, canonical recomposition and templated text consistency do not independently prove extracted-fact semantics.
 
 For an **already-produced public-development** prediction CSV (not evaluation labels), retain a new, immutable run directory:
 

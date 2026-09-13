@@ -24,4 +24,5 @@ jobs:
       - name: Run deterministic offline tests
         env:
           PYTHONDONTWRITEBYTECODE: '1'
+          PYTHONPATH: code
         run: python -m unittest discover -s code/tests -p 'test_*.py' -v

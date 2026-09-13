@@ -1,6 +1,6 @@
-# Python >=3.10 is required by the evidence module; the tested baseline is Python 3.13.
-# Exact pins for the offline evidence client, schema and image checks.
-# Do not install speculative model SDKs or automatically load .env.
+# Required Python >=3.10; tested baseline Python 3.13.
+# Exact direct pins for offline evidence client/schema/image checks, not a transitive lock.
+# Secrets are environment-only; no automatic .env loading or speculative model SDKs.
 pydantic==2.13.5
 httpx==0.28.1
 Pillow==12.3.0
