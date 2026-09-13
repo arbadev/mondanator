@@ -141,6 +141,25 @@ class PopulateExtractionCacheTests(IntegrationCase):
             self.assertFalse(self.cache.exists())
             client.send.assert_not_called()
 
+    def test_midrun_cache_io_error_is_counted_without_path_and_summary_is_kept(self):
+        real_locked, seen = ExtractionCache.locked, []
+
+        def failing(cache, key):
+            seen.append(key)
+            if len(seen) == 2:
+                raise OSError(28, "No space left on device", str(self.cache / "secret-path.lock"))
+            return real_locked(cache, key)
+
+        with patch.object(ExtractionCache, "locked", autospec=True, side_effect=failing):
+            result = populate_cache(self.dataset, **self.live_kwargs())
+        self.assertGreater(len(seen), 2)
+        self.assertEqual(result["issues"].get("cache_io_error"), 1)
+        self.assertGreaterEqual(result["outcomes"].get("unavailable", 0), 1)
+        self.assertTrue(result["accounting_complete"])
+        self.assertEqual(result["new_usage"]["physical_attempts"], len(self.calls))
+        self.assertGreater(len(self.calls), 0)
+        self.assertNotIn("secret-path", json.dumps(result, default=str).replace(str(self.receipts), ""))
+
     def test_midrun_evidence_error_is_counted_and_accounting_summary_is_kept(self):
         real_extract, seen = Extractor.extract, []
 

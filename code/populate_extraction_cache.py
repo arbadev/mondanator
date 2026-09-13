@@ -110,9 +110,9 @@ def populate_cache(dataset_root, *, cache_root, receipt_path, run_id: str,
                 result = extractor.extract(source, candidate_events=descriptors, asset=asset,
                                            as_of=financial.request_date, mode="live",
                                            cost_upper_bound=attempt_cost_bound)
-            except EvidenceError as exc:
+            except (EvidenceError, OSError) as exc:
                 outcomes["unavailable"] += 1
-                issues[exc.code] += 1
+                issues[exc.code if isinstance(exc, EvidenceError) else "cache_io_error"] += 1
                 continue
             seen.add((source.source_id, result.cache_key))
             outcomes[result.outcome] += 1
