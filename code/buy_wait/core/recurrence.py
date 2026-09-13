@@ -265,9 +265,13 @@ def infer_occurrences(data, resolved, facts, anchor, explicit, policy):
         if len(matches) == 1:
             grouped_explicit[matches[0]].append((record, bool(exact)))
         elif len(matches) > 1 and record.disposition in ("reserve", "future_cash"):
+            # An ambiguous debit remains as an explicit reserve while every
+            # supported recurrence remains projected.  That may over-reserve,
+            # but is a usable conservative bound; an ambiguous credit must not
+            # be counted twice or used to certify capacity.
             issues.append(issue("AMBIGUOUS_EXPLICIT_CYCLE", "future cash cannot be assigned uniquely to recurring series",
                                 target=record.source_event_ids, impact="recurrence",
-                                severity="warning" if not exact and record.event.direction == "debit" else "blocking"))
+                                severity="warning" if record.event.direction == "debit" else "blocking"))
     result_series = []
     changes = []
     covered_history = set(assigned)
@@ -325,7 +329,8 @@ def infer_occurrences(data, resolved, facts, anchor, explicit, policy):
                     issues.append(issue("AMBIGUOUS_EXPLICIT_CYCLE", "same-category cash lacks the series description; cycle identity is unproven",
                                         target=record.source_event_ids, severity="warning", impact="recurrence"))
             elif replaces and e.settlement_date and start <= e.settlement_date <= end and record.disposition in ("reserve", "future_cash"):
-                issues.append(issue("UNMATCHED_EXPLICIT_CYCLE", "explicit cash may overlap inference but its nominal cycle is not identified", target=record.source_event_ids, impact="recurrence"))
+                issues.append(issue("UNMATCHED_EXPLICIT_CYCLE", "explicit cash may overlap inference but its nominal cycle is not identified", target=record.source_event_ids, impact="recurrence",
+                                    severity="warning" if record.event.direction == "debit" else "blocking"))
         # Distinct resolved cash legs on the same historical cycle are distinct
         # obligations.  Normalization has already merged only supported duplicate
         # representations, so grouping by description must not collapse the
