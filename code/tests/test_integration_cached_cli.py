@@ -159,6 +159,17 @@ class CachedCliTests(IntegrationCase):
         self.assertTrue(output_path.is_file())
         self.assertFalse(result["final_certified"])
 
+    def test_oversized_trace_becomes_a_sanitized_request_failure_without_partial_file(self):
+        with patch("evaluation.cached_run._MAX_ARTIFACT_BYTES", 16 * 1024), \
+             patch("evaluation.cached_run.trace_wire", return_value={"payload": "x" * (17 * 1024)}):
+            result = self.run_development()
+        self.assertFalse(result["output_written"])
+        directory = self.run_root / "dev"
+        failures = json.loads((directory / "failures.json").read_text())
+        self.assertEqual([failure["code"] for failure in failures], ["DECISION_EXECUTION_FAILED"] * 2)
+        self.assertTrue(all(failure["exception_type"] == "DataError" for failure in failures))
+        self.assertFalse(any((directory / "traces").iterdir()))
+
     def test_request_execution_error_is_sanitized_retained_and_prevents_export(self):
         def execute(data, req, **kwargs):
             if req["request_id"] == "request_1":

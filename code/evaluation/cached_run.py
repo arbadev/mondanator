@@ -19,7 +19,12 @@ from evaluation.usage import JsonlUsageSink, aggregate_usage, read_usage_events,
 from collections import Counter
 
 
+_MAX_ARTIFACT_BYTES = 64 * 1024 * 1024
+
+
 def _bytes(path, payload):
+    if len(payload) > _MAX_ARTIFACT_BYTES:
+        raise DataError("development artifact exceeds size limit")
     with Path(path).open("xb") as stream:
         stream.write(payload)
         stream.flush()
