@@ -11,7 +11,6 @@ import argparse
 import json
 import os
 from collections import Counter
-from datetime import date
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
