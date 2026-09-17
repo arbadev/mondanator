@@ -107,6 +107,17 @@ class RecurrenceTests(unittest.TestCase):
         self.assertEqual(matched.capacity.proof_status, "resolved_under_policy")
         self.assertEqual(len(matched.occurrences), 3)
 
+    def test_unmatched_future_debit_is_a_conservative_bound_not_unknown_capacity(self):
+        # Independent ledger: 1000 - 300 floor - three monthly bills - one
+        # unassigned scheduled debit = 300 available today.  Keeping both
+        # debit paths is conservative; this rule must never apply to income.
+        future = replace(event("late", 100, 90, category="rent"), description="Recurring bill")
+        core = build((*monthly(), future), requested=900)
+        self.assertEqual(core.capacity.amount_safe_to_pay, money(300))
+        self.assertEqual(core.capacity.proof_status, "conservative_bound")
+        self.assertIn("UNMATCHED_EXPLICIT_CYCLE", core.capacity.issue_codes)
+        self.assertEqual(sum(o.home_amount.minor for o in core.occurrences), 40000)
+
     def test_authoritative_series_end_suppresses_only_its_applicable_future_cycles(self):
         src = source()
         ended = fact("end", "h2", CancelClaim(), src, scope="series", action="end", effective_on=date(2026, 3, 1))
